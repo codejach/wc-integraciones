@@ -272,14 +272,16 @@ class Wc_Integraciones_Public {
 			$procesamiento = $data['status'] === 'cancelled' ? -1 : 1;
 
 			// Procesar según el topic
-			$result_message = $this->procesar_order_v2($data, $procesamiento);
+			$result_process = $this->procesar_order_v2($data, $procesamiento);
+
+			$status = $result_process['success'] ? 'done' : 'error';
 
 			// Marcar como procesada y almacena en result message el cuerpo del response
 			$wpdb->update($table, [
-				'status'   => 'done',
+				'status'   => $status,
 				'attempts' => $notificacion->attempts + 1,
 				'processed_at' => current_time('mysql'),
-				'result_message' => wp_json_encode($result_message),
+				'result_message' => wp_json_encode($result_process),
 			], ['id' => $notificacion_id]);
 
 			error_log("✅ Procesada notificación $notificacion_id ({$data['topic']})");
