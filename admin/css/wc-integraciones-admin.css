@@ -1,0 +1,23 @@
+/**
+ * All of the CSS for your admin-specific functionality should be
+ * included in this file.
+ */
+ .meli-settings-card {
+    background: #fff;
+    border-left: 4px solid #0073aa;
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border-radius: 6px;
+}
+.meli-settings-card h2 {
+    margin-top: 0;
+    color: #0073aa;
+    display: flex;
+    align-items: center;
+    font-size: 1.3em;
+}
+.meli-settings-card h2 .dashicons {
+    margin-right: 8px;
+    font-size: 20px;
+}
