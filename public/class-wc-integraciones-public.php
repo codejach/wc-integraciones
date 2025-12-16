@@ -305,15 +305,17 @@ class Wc_Integraciones_Public {
 		$resource = $data['resource'] ?? null;
 
 		if (!$resource) {
-			error_log('❌ No se proporcionó resource en la notificación.');
-			return;
+			$message = '❌ No se proporcionó resource en la notificación.';
+			error_log($message);
+			return ['success' => true, 'message' => $message, 'response' => $data];
 		}
 
 		// Obtener token de MercadoLibre
 		$access_token = get_option('meli_access_token');
 		if (!$access_token) {
-			error_log('❌ Token de acceso de MercadoLibre no configurado.');
-			return;
+			$message = '❌ Token de acceso de MercadoLibre no configurado.';
+			error_log($message);
+			return ['success' => false, 'message' => $message, 'response' => null];
 		}
 
 		// Configurar encabezados
@@ -327,8 +329,9 @@ class Wc_Integraciones_Public {
 		$response = wp_remote_get($url, ['headers' => $headers]);
 
 		if (is_wp_error($response)) {
-			error_log('❌ Error al obtener orden desde ML: ' . $response->get_error_message());
-			return;
+			$message = '❌ Error al obtener orden desde ML: ' . $response->get_error_message();
+			error_log($message);
+			return ['success' => false, 'message' => $message, 'response' => null];
 		}
 
 		$order_data = json_decode(wp_remote_retrieve_body($response), true);
@@ -336,13 +339,21 @@ class Wc_Integraciones_Public {
 		error_log("🔍 Orden obtenida: " . wp_json_encode($order_data));
 
 		if ($order_data['date_closed'] === null) {
-			error_log('ℹ️ La orden no ha sido cerrada, no se procesará.');
-			return;
+			$message = 'ℹ️ La orden no ha sido cerrada, no se procesará.';
+			error_log($message);
+			return ['success' => true, 'message' => $message, 'response' => $order_data];
+		}
+
+		if ($order_data['fulfilled'] === true) {
+			$message = 'ℹ️ La orden ya ha sido cumplida, no se procesará.';
+			error_log($message);
+			return ['success' => true, 'message' => $message, 'response' => $order_data]	;
 		}
 
 		if (empty($order_data['order_items'])) {
-			error_log('⚠️ La orden no contiene order_items.');
-			return;
+			$message = '❌ La orden no contiene order_items.';
+			error_log($message);
+			return ['success' => false, 'message' => $message, 'response' => $order_data];
 		}
 
 		foreach ($order_data['order_items'] as $item) {
@@ -398,7 +409,7 @@ class Wc_Integraciones_Public {
 			error_log("✅ Stock actualizado para SKU {$detalle->wc_sku}: {$current_stock} → {$new_stock} (venta de {$quantity} unidades)");
 		}
 
-		return $order_data;
+		return ['success' => true, 'message' => 'Procesamiento completado.', 'response' => $order_data];
 	}
 
 }
