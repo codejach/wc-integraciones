@@ -39,6 +39,14 @@ define( 'WC_INTEGRACIONES_VERSION', '1.0.0' );
 
 /**
  * The code that runs during plugin activation.
+ */
+define(
+    'WC_INTEGRACIONES_ENV',
+    defined('APP_ENV') ? APP_ENV : 'prod'
+);
+
+/**
+ * The code that runs during plugin activation.
  * This action is documented in includes/class-wc-integraciones-activator.php
  */
 function activate_wc_integraciones() {

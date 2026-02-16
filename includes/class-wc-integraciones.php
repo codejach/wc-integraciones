@@ -58,6 +58,15 @@ class Wc_Integraciones {
 	protected $version;
 
 	/**
+	 * The plugin configuration loaded based on the environment.
+	 *
+	 * @since    1.0.0
+	 * @access   protected
+	 * @var      array    $config    The plugin configuration.
+	 */
+	private $config;
+
+	/**
 	 * Define the core functionality of the plugin.
 	 *
 	 * Set the plugin name and the plugin version that can be used throughout the plugin.
@@ -79,6 +88,7 @@ class Wc_Integraciones {
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 
+	    $this->config = WC_Integraciones_Config::load();
 	}
 
 	/**
@@ -121,6 +131,11 @@ class Wc_Integraciones {
 		 * side of the site.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/class-wc-integraciones-public.php';
+
+		/**
+		 * The class responsible for managing plugin configuration based on the environment.
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-config.php';
 
 		$this->loader = new Wc_Integraciones_Loader();
 

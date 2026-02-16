@@ -44,6 +44,15 @@ class Wc_Integraciones_Public {
 	 * Initialize the class and set its properties.
 	 *
 	 * @since    1.0.0
+	 * @access   private
+	 * @var      string    $ngrok_url    The current ngrok URL of this plugin.
+	 */
+	private $ngrok_url;
+
+	/**
+	 * Initialize the class and set its properties.
+	 *
+	 * @since    1.0.0
 	 * @param      string    $plugin_name       The name of the plugin.
 	 * @param      string    $version    The version of this plugin.
 	 */
@@ -64,6 +73,8 @@ class Wc_Integraciones_Public {
 			10,
 			1
 		);
+
+		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
 	/**
@@ -124,10 +135,15 @@ class Wc_Integraciones_Public {
 	public function handle_meli_webhook($request) {
 		$data = $request->get_json_params();
 
+		if (WC_Integraciones_Config::is_prod()) {
+			$webhook_url = "https://www.ninavestuariosinfantiles.com/wp-json/meli/v1/notifications/async";
+		} else {
+			$webhook_url = "http://wp_integraciones/wp-json/meli/v1/notifications/async";
+		}
+
 		// Lanza procesamiento asíncrono (sin bloquear respuesta)
 		$response = wp_remote_post(
-			'http://wp_integraciones/wp-json/meli/v1/notifications/async',
-			// 'https://www.ninavestuariosinfantiles.com/wp-json/meli/v1/notifications/async',
+			$webhook_url,
 			[
 				'blocking' => false, // importante: no esperar respuesta
 				'headers' => ['Content-Type' => 'application/json'],
@@ -139,7 +155,6 @@ class Wc_Integraciones_Public {
 		return new WP_REST_Response(['status' => 'ok'], 200);
 	}
 
-	
 	// Endpoint para procesamiento real (asíncrono)
 	public function register_meli_webhook_async() {
 		register_rest_route('meli/v1', '/notifications/async', [
