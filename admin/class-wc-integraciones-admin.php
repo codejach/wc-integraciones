@@ -44,6 +44,15 @@ class Wc_Integraciones_Admin {
 	 * Initialize the class and set its properties.
 	 *
 	 * @since    1.0.0
+	 * @access   private
+	 * @var      string    $ngrok_url    The current ngrok URL of this plugin.
+	 */
+	private $ngrok_url;
+
+	/**
+	 * Initialize the class and set its properties.
+	 *
+	 * @since    1.0.0
 	 * @param      string    $plugin_name       The name of this plugin.
 	 * @param      string    $version    The version of this plugin.
 	 */
@@ -56,13 +65,15 @@ class Wc_Integraciones_Admin {
 
 		add_action('admin_post_guardar_meli_configuracion', [$this, 'guardar_meli_configuracion']);
 
-		add_action('admin_post_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
+		add_action('admin_post_nopriv_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
 
 		add_action('meli_refresh_token_cron', [$this, 'obtener_token_meli']);
 
 		if (!wp_next_scheduled('meli_refresh_token_cron')) {
 			wp_schedule_event(time(), 'hourly', 'meli_refresh_token_cron');
 		}
+
+		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
 	/**
@@ -589,6 +600,13 @@ class Wc_Integraciones_Admin {
 
 	// Callback OAuth Mercado Libre
 	public function handle_meli_oauth_callback() {
+		if (WC_Integraciones_Config::is_prod()) {
+			$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
+			$scheme = 'https';
+		} else {
+			$redirect_uri = $this->ngrok_url . '/wp-admin/admin-post.php?action=meli_auth_callback';
+			$scheme = 'http';
+		}
 
 		// Validar parámetro "code" recibido de MercadoLibre
 		if (!isset($_GET['code'])) {
@@ -604,10 +622,6 @@ class Wc_Integraciones_Admin {
 		if (!$config) {
 			wp_die('No se encontró la configuración de Mercado Libre.');
 		}
-
-		// Importante: debe coincidir con la Redirect URI registrada en Mercado Libre
-		// $redirect_uri = 'https://ab08bc90788e.ngrok-free.app/wp-admin/admin-post.php?action=meli_auth_callback';
-		$redirect_uri = admin_url('admin-post.php?action=meli_auth_callback');
 
 		// Solicitar el token a Mercado Libre
 		$response = wp_remote_post('https://api.mercadolibre.com/oauth/token', [
@@ -649,7 +663,10 @@ class Wc_Integraciones_Admin {
 		}
 
 		// Redirigir al usuario de vuelta a tu pestaña de configuración
-		wp_redirect(admin_url('admin.php?page=integraciones-woocommerce-mercadolibre&tab=configuracion&guardado=true'));
+		wp_redirect(admin_url(
+			'admin.php?page=integraciones-woocommerce-mercadolibre&tab=configuracion&guardado=true',
+			$scheme
+		));
 		exit;
 	}
 
@@ -664,8 +681,11 @@ class Wc_Integraciones_Admin {
 			return '';
 		}
 
-		// $redirect_uri = 'https://ab08bc90788e.ngrok-free.app/wp-admin/admin-post.php?action=meli_auth_callback';
-		$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
+		if (WC_Integraciones_Config::is_prod()) {
+			$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
+		} else {
+			$redirect_uri = $this->ngrok_url . '/wp-admin/admin-post.php?action=meli_auth_callback';
+		}
 		$client_id = $config->client_id;
 		$meli_auth_url = "https://auth.mercadolibre.com.mx/authorization?response_type=code&client_id={$client_id}&redirect_uri={$redirect_uri}";
 
