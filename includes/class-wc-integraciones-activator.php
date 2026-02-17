@@ -33,6 +33,11 @@ class Wc_Integraciones_Activator {
 		global $wpdb;
 		$charset_collate = $wpdb->get_charset_collate();
 
+		// Programar evento cron para refrescar token cada 6 horas
+		if (!wp_next_scheduled('meli_refresh_token_cron')) {
+			wp_schedule_event(time(), 'every_six_hours', 'meli_refresh_token_cron');
+		}
+
 		$table_name = $wpdb->prefix . 'wc_integraciones_settings';
 		$sql = "CREATE TABLE $table_name (
 			id mediumint(9) NOT NULL AUTO_INCREMENT,

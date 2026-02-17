@@ -73,6 +73,19 @@ register_deactivation_hook( __FILE__, 'deactivate_wc_integraciones' );
 require plugin_dir_path( __FILE__ ) . 'includes/class-wc-integraciones.php';
 
 /**
+ * Register our custom cron schedule (every 6 hours)
+ */
+add_filter('cron_schedules', 'wc_integraciones_add_six_hour_schedule');
+function wc_integraciones_add_six_hour_schedule($schedules) {
+    $schedules['every_six_hours'] = [
+        'interval' => 6 * HOUR_IN_SECONDS,
+        'display'  => 'Every Six Hours'
+    ];
+    return $schedules;
+}
+
+
+/**
  * Begins execution of the plugin.
  *
  * Since everything within the plugin is registered via hooks,
