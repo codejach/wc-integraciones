@@ -65,7 +65,7 @@ class Wc_Integraciones_Admin {
 
 		add_action('admin_post_guardar_meli_configuracion', [$this, 'guardar_meli_configuracion']);
 
-		add_action('admin_post_nopriv_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
+		add_action('admin_post' . self::get_meli_auth_suffix() . '_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
 
 		add_action('meli_refresh_token_cron', [$this, 'obtener_token_meli']);
 
@@ -601,7 +601,7 @@ class Wc_Integraciones_Admin {
 	// Callback OAuth Mercado Libre
 	public function handle_meli_oauth_callback() {
 		if (WC_Integraciones_Config::is_prod()) {
-			$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
+			$redirect_uri = admin_url('admin-post.php?action=meli_auth_callback');
 			$scheme = 'https';
 		} else {
 			$redirect_uri = $this->ngrok_url . '/wp-admin/admin-post.php?action=meli_auth_callback';
@@ -690,5 +690,9 @@ class Wc_Integraciones_Admin {
 		$meli_auth_url = "https://auth.mercadolibre.com.mx/authorization?response_type=code&client_id={$client_id}&redirect_uri={$redirect_uri}";
 
 		return $meli_auth_url;
+	}
+
+	public static function get_meli_auth_suffix() {
+		return WC_Integraciones_Config::is_prod() ? '' : '_nopriv';
 	}
 }
