@@ -69,10 +69,6 @@ class Wc_Integraciones_Admin {
 
 		add_action('meli_refresh_token_cron', [$this, 'obtener_token_meli']);
 
-		if (! as_next_scheduled_action('meli_refresh_token_cron')) {
-			as_schedule_recurring_action(time(), HOUR_IN_SECONDS, 'meli_refresh_token_cron');
-		}
-
 		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
