@@ -601,7 +601,7 @@ class Wc_Integraciones_Admin {
 	// Callback OAuth Mercado Libre
 	public function handle_meli_oauth_callback() {
 		if (WC_Integraciones_Config::is_prod()) {
-			$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
+			$redirect_uri = admin_url('admin-post.php?action=meli_auth_callback');
 			$scheme = 'https';
 		} else {
 			$redirect_uri = $this->ngrok_url . '/wp-admin/admin-post.php?action=meli_auth_callback';
