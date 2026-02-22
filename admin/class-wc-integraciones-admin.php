@@ -67,8 +67,6 @@ class Wc_Integraciones_Admin {
 
 		add_action('admin_post' . self::get_meli_auth_suffix() . '_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
 
-		add_action('meli_refresh_token_cron', [$this, 'obtener_token_meli']);
-
 		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
@@ -190,8 +188,6 @@ class Wc_Integraciones_Admin {
 	private function display_meli2wc() {
 		global $wpdb;
 
-		error_log($this->obtener_token_meli());
-
 		// Procesar sincronización si se presionó el botón
 		if (isset($_POST['meli_sync_btn']) && isset($_POST['meli_sync_nonce']) && wp_verify_nonce($_POST['meli_sync_nonce'], 'meli_sync_action')) {
 			$this->sync_meli_publicaciones();
@@ -279,9 +275,6 @@ class Wc_Integraciones_Admin {
 			}
 		}
 
-		// imprime el token en el log de debug
-		error_log('Access Token ML: ' . $this->obtener_token_meli());		
-
 		// Incluir layout
 		include plugin_dir_path(__FILE__) . 'partials/mercadolibre/meli2wc/view.php';
 
@@ -290,7 +283,9 @@ class Wc_Integraciones_Admin {
 	// Sincronizar publicaciones desde Mercado Libre
 	private function sync_meli_publicaciones() {
 		global $wpdb;
-		$access_token = $this->obtener_token_meli();
+		$meli = new WC_Integraciones_Meli();
+
+		$access_token = $meli->obtener_token();
 
 		// Recuperar configuración
 		$table_name = $wpdb->prefix . 'wc_integraciones_settings';
@@ -528,71 +523,6 @@ class Wc_Integraciones_Admin {
     	wp_redirect(add_query_arg('configuracion_guardada', 'true', wp_get_referer()));
 		exit;
 	}
-
-	/**
-	 * Devuelve un access_token válido de MercadoLibre.
-	 * Si está expirado, se renueva automáticamente usando el refresh_token.
-	 */
-	private function obtener_token_meli() {
-		global $wpdb;
-
-		$access_token = get_option('meli_access_token');
-		$refresh_token = get_option('meli_refresh_token');
-		$expires_at = get_option('meli_token_expires');
-
-		// Verificar si el token sigue siendo válido (5 min de margen)
-		if ($access_token && $expires_at && (time() < $expires_at - 300)) {
-			return $access_token;
-		}
-
-		// Si expiró, renovarlo
-		$config = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}wc_integraciones_settings WHERE client_name = 'mercadolibre'");
-
-		if (!$config) {
-			wp_redirect(add_query_arg('mensaje_error_renovar_token', 'configuracion', wp_get_referer()));
-			error_log('❌ No se encontró configuración de Mercado Libre.');
-			exit;
-		}
-
-		if (!$refresh_token) {
-			wp_redirect(add_query_arg('mensaje_error_renovar_token', 'ausente', wp_get_referer()));
-			error_log('❌ No se encontró refresh_token para renovar el token ML.');
-			exit;
-		}
-
-		$response = wp_remote_post('https://api.mercadolibre.com/oauth/token', [
-			'body' => [
-				'grant_type'    => 'refresh_token',
-				'client_id'     => $config->client_id,
-				'client_secret' => $config->secret_key,
-				'refresh_token' => $refresh_token,
-			],
-		]);
-
-		if (is_wp_error($response)) {
-			wp_redirect(add_query_arg('mensaje_error_renovar_token', 'renovar', wp_get_referer()));
-			error_log('❌ Error al renovar token ML: ' . $response->get_error_message());
-			exit;
-		}
-
-		$body = json_decode(wp_remote_retrieve_body($response), true);
-
-		if (!isset($body['access_token'])) {
-			wp_redirect(add_query_arg('mensaje_error_renovar_token', 'acceso', wp_get_referer()));
-			error_log('❌ No se obtuvo access_token al renovar: ' . wp_remote_retrieve_body($response));
-			exit;
-		}
-
-		// Guardar nuevos tokens
-		update_option('meli_access_token', $body['access_token']);
-		update_option('meli_refresh_token', $body['refresh_token']);
-		update_option('meli_token_expires', time() + $body['expires_in']);
-
-		error_log('✅ Token de Mercado Libre renovado automáticamente.');
-
-		return $body['access_token'];
-	}
-
 
 	// Callback OAuth Mercado Libre
 	public function handle_meli_oauth_callback() {
