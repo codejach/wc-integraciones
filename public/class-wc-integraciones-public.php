@@ -328,12 +328,8 @@ class Wc_Integraciones_Public {
 		}
 
 		// Obtener token de MercadoLibre
-		$access_token = get_option('meli_access_token');
-		if (!$access_token) {
-			$message = '❌ Token de acceso de MercadoLibre no configurado.';
-			error_log($message);
-			return ['success' => false, 'message' => $message, 'response' => null];
-		}
+		$meli = new WC_Integraciones_Meli();
+		$access_token = $meli->obtener_token();
 
 		// Configurar encabezados
 		$headers = [

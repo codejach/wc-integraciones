@@ -137,6 +137,11 @@ class Wc_Integraciones {
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-config.php';
 
+		/**
+		 * The class responsible for handling MercadoLibre integration.
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-meli.php';
+
 		$this->loader = new Wc_Integraciones_Loader();
 
 	}
