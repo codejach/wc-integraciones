@@ -188,8 +188,6 @@ class Wc_Integraciones_Admin {
 	private function display_meli2wc() {
 		global $wpdb;
 
-		error_log('Token: ' . get_option('meli_access_token'));
-
 		// Procesar sincronización si se presionó el botón
 		if (isset($_POST['meli_sync_btn']) && isset($_POST['meli_sync_nonce']) && wp_verify_nonce($_POST['meli_sync_nonce'], 'meli_sync_action')) {
 			$this->sync_meli_publicaciones();
