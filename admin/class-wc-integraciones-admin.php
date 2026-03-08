@@ -188,6 +188,8 @@ class Wc_Integraciones_Admin {
 	private function display_meli2wc() {
 		global $wpdb;
 
+		error_log('Token: ' . get_option('meli_access_token'));
+
 		// Procesar sincronización si se presionó el botón
 		if (isset($_POST['meli_sync_btn']) && isset($_POST['meli_sync_nonce']) && wp_verify_nonce($_POST['meli_sync_nonce'], 'meli_sync_action')) {
 			$this->sync_meli_publicaciones();
@@ -299,16 +301,39 @@ class Wc_Integraciones_Admin {
 		$user_id = $config->user_id;
 
 		// Obtener items activos
-		$response_items = wp_remote_get("https://api.mercadolibre.com/users/{$user_id}/items/search?status=active", [
-			'headers' => ['Authorization' => 'Bearer ' . $access_token]
-		]);
-		if (is_wp_error($response_items)) {
-			echo '<div class="error"><p>Error al obtener publicaciones: ' . $response_items->get_error_message() . '</p></div>';
-			return;
-		}
+		$limit = 50;
+		$offset = 0;
+		$all_items = [];
 
-		$items_list = json_decode(wp_remote_retrieve_body($response_items), true);
-		if (empty($items_list['results'])) {
+		do {
+			$response_items = wp_remote_get(
+				"https://api.mercadolibre.com/users/{$user_id}/items/search?status=active&limit={$limit}&offset={$offset}",
+				[
+					'headers' => ['Authorization' => 'Bearer ' . $access_token]
+				]
+			);
+
+			if (is_wp_error($response_items)) {
+				echo '<div class="error"><p>Error al obtener publicaciones: ' . $response_items->get_error_message() . '</p></div>';
+				return;
+			}
+
+			$items_list = json_decode(wp_remote_retrieve_body($response_items), true);
+
+			if (empty($items_list['results'])) {
+				break;
+			}
+
+			// Acumular resultados
+			$all_items = array_merge($all_items, $items_list['results']);
+
+			$total = $items_list['paging']['total'];
+
+			$offset += $limit;
+
+		} while ($offset < $total);
+
+		if (empty($all_items)) {
 			echo '<p>No se encontraron publicaciones activas.</p>';
 			return;
 		};
@@ -317,122 +342,170 @@ class Wc_Integraciones_Admin {
 		$table_det = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
 		$table_attrs = $wpdb->prefix . 'wc_integraciones_meli_variacion_atributos';
 
-		foreach ($items_list['results'] as $item_id) {
-			$response_detail = wp_remote_get("https://api.mercadolibre.com/items/{$item_id}", [
+		$chunks = array_chunk($all_items, 20);
+
+		foreach ($chunks as $chunk) {
+			$ids = implode(',', $chunk);
+
+			$url = "https://api.mercadolibre.com/items?ids={$ids}"
+				. "&attributes=id,title,seller_id,price,base_price,original_price,initial_quantity,available_quantity,sold_quantity,thumbnail,status,shipping,variations";
+
+			$response = wp_remote_get($url, [
 				'headers' => ['Authorization' => 'Bearer ' . $access_token]
 			]);
 
-			$item = json_decode(wp_remote_retrieve_body($response_detail), true);
-
-			if ($item['shipping']['logistic_type'] === 'fulfillment') {
-				error_log("Omitiendo item ID: $item_id (logística fulfillment)");
+			if (is_wp_error($response)) {
+				error_log('Error en multiget: ' . $response->get_error_message());
 				continue;
 			}
 
-			// Guardar en Publicaciones
-			$existing_id = $wpdb->get_var(
-				$wpdb->prepare("SELECT Id FROM $table_pub WHERE meli_item_id = %s", $item_id)
-			);
+			$items = json_decode(wp_remote_retrieve_body($response), true);
 
-			$inserted = null;
-
-			if ($existing_id) {
-				$wpdb->update(
-					$table_pub,
-					[
-						'title'              => $item['title'],
-						'seller_id'          => (int)$item['seller_id'],
-						'price'              => (float)$item['price'],
-						'base_price'         => (float)$item['base_price'],
-						'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
-						'initial_quantity'   => (int)$item['initial_quantity'],
-						'available_quantity' => (int)$item['available_quantity'],
-						'sold_quantity'      => (int)$item['sold_quantity'],
-						'thumbnail'          => $item['thumbnail'],
-						'status'             => $item['status'],
-						'logistic_type'      => $item['shipping']['logistic_type'],
-					],
-					['Id' => $existing_id],
-					['%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'],
-					['%d'] // formato del WHERE
-				);
-			} else {
-				$inserted = $wpdb->insert(
-					$table_pub,
-					[
-						'meli_item_id'       => $item_id,
-						'title'              => $item['title'],
-						'seller_id'          => (int)$item['seller_id'],
-						'price'              => (float)$item['price'],
-						'base_price'         => (float)$item['base_price'],
-						'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
-						'initial_quantity'   => (int)$item['initial_quantity'],
-						'available_quantity' => (int)$item['available_quantity'],
-						'sold_quantity'      => (int)$item['sold_quantity'],
-						'thumbnail'          => $item['thumbnail'],
-						'status'             => $item['status'],
-						'logistic_type'      => $item['shipping']['logistic_type'],
-					],
-					['%s','%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'] // formatos de datos para insert
-				);
-			}
-
-			// Obtener id del registro insertado o actualizado
-			$publicacion_id = $inserted ? $wpdb->insert_id : $existing_id;
-
-			error_log("Procesando item ID: $item_id, registro ID en BD: $publicacion_id");
-
-			// Validar si hay variaciones
-			if (!isset($item['variations']) || !is_array($item['variations'])) {
-				error_log('No se encontraron variaciones para el item: ' . wp_json_encode($item));
-				continue;
-			}
-
-			// Guardar variaciones
-			foreach ($item['variations'] as $variation) {
-				error_log('Procesando variación: ' . wp_json_encode($variation));
-
-				$existing = $wpdb->get_var( $wpdb->prepare(
-					"SELECT id FROM $table_det WHERE publicacion_id = %d AND variation_id = %s",
-					$publicacion_id,
-					$variation['id']
-				));
-
-				$data = [
-					'price' => $variation['price'],
-					'available_quantity' => $variation['available_quantity'],
-					'sold_quantity' => $variation['sold_quantity'],
-					'user_product_id' => isset($variation['user_product_id']) ? $variation['user_product_id'] : null,
-				];
-
-				$format = ['%f','%d','%d','%s'];
-
-				if ($existing) {
-					$wpdb->update($table_det, $data, ['id' => $existing], $format, ['%d']);
-				} else {
-					$wpdb->insert($table_det, array_merge($data, [
-						'publicacion_id' => $publicacion_id,
-						'variation_id' => $variation['id'],
-						'wc_sku' => null,
-					]), array_merge($format, ['%d','%s','%s']));
+			foreach ($items as $entry) {
+				if (!isset($entry['body'])) {
+					continue;
 				}
 
-				$detalle_id = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table_det WHERE publicacion_id=%d AND variation_id=%s", $publicacion_id, $variation['id']));
+				$item = $entry['body'];
+				$item_id = $item['id'];
 
-				// Guardar atributos de variación
-				foreach ($variation['attribute_combinations'] as $attr) {
-					$wpdb->insert(
-						$table_attrs,
+				if (isset($item['shipping']['logistic_type']) && $item['shipping']['logistic_type'] === 'fulfillment') {
+					error_log("Omitiendo item ID: $item_id (logística fulfillment)");
+					continue;
+				}
+
+				// Guardar en Publicaciones
+				$existing_id = $wpdb->get_var(
+					$wpdb->prepare("SELECT Id FROM $table_pub WHERE meli_item_id = %s", $item_id)
+				);
+
+				$inserted = null;
+
+				if ($existing_id) {
+					$wpdb->update(
+						$table_pub,
 						[
-							'detalle_id' => $detalle_id,
-							'attribute_id' => $attr['id'],
-							'name' => $attr['name'],
-							'value_id' => $attr['value_id'],
+							'title'              => $item['title'],
+							'seller_id'          => (int)$item['seller_id'],
+							'price'              => (float)$item['price'],
+							'base_price'         => (float)$item['base_price'],
+							'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
+							'initial_quantity'   => (int)$item['initial_quantity'],
+							'available_quantity' => (int)$item['available_quantity'],
+							'sold_quantity'      => (int)$item['sold_quantity'],
+							'thumbnail'          => $item['thumbnail'],
+							'status'             => $item['status'],
+							'logistic_type'      => $item['shipping']['logistic_type'],
+						],
+						['Id' => $existing_id],
+						['%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'],
+						['%d'] // formato del WHERE
+					);
+				} else {
+					$inserted = $wpdb->insert(
+						$table_pub,
+						[
+							'meli_item_id'       => $item_id,
+							'title'              => $item['title'],
+							'seller_id'          => (int)$item['seller_id'],
+							'price'              => (float)$item['price'],
+							'base_price'         => (float)$item['base_price'],
+							'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
+							'initial_quantity'   => (int)$item['initial_quantity'],
+							'available_quantity' => (int)$item['available_quantity'],
+							'sold_quantity'      => (int)$item['sold_quantity'],
+							'thumbnail'          => $item['thumbnail'],
+							'status'             => $item['status'],
+							'logistic_type'      => $item['shipping']['logistic_type'],
+						],
+						['%s','%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'] // formatos de datos para insert
+					);
+				}
+
+				// Obtener id del registro insertado o actualizado
+				$publicacion_id = $inserted ? $wpdb->insert_id : $existing_id;
+
+				error_log("Procesando item ID: $item_id, registro ID en BD: $publicacion_id");
+
+				// Validar si hay variaciones
+				if (!isset($item['variations']) || !is_array($item['variations'])) {
+					error_log('No se encontraron variaciones para el item: ' . wp_json_encode($item));
+					continue;
+				}
+
+				// Guardar variaciones
+				foreach ($item['variations'] as $variation) {
+					error_log('Procesando variación: ' . wp_json_encode($variation));
+
+					$existing = $wpdb->get_var( $wpdb->prepare(
+						"SELECT id FROM $table_det WHERE publicacion_id = %d AND variation_id = %s",
+						$publicacion_id,
+						$variation['id']
+					));
+
+					$data = [
+						'price' => $variation['price'],
+						'available_quantity' => $variation['available_quantity'],
+						'sold_quantity' => $variation['sold_quantity'],
+						'user_product_id' => isset($variation['user_product_id']) ? $variation['user_product_id'] : null,
+					];
+
+					$format = ['%f','%d','%d','%s'];
+
+					if ($existing) {
+						$wpdb->update($table_det, $data, ['id' => $existing], $format, ['%d']);
+					} else {
+						$wpdb->insert($table_det, array_merge($data, [
+							'publicacion_id' => $publicacion_id,
+							'variation_id' => $variation['id'],
+							'wc_sku' => null,
+						]), array_merge($format, ['%d','%s','%s']));
+					}
+
+					$detalle_id = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table_det WHERE publicacion_id=%d AND variation_id=%s", $publicacion_id, $variation['id']));
+
+					// Guardar atributos de variación
+					foreach ($variation['attribute_combinations'] as $attr) {
+						$existing_attr = $wpdb->get_var(
+							$wpdb->prepare(
+								"SELECT id FROM $table_attrs WHERE detalle_id = %d AND attribute_id = %s AND value_name = %s",
+								$detalle_id,
+								$attr['id'],
+								$attr['value_name']
+							)
+						);
+
+						$attr_data = [
+							'name'       => $attr['name'],
 							'value_name' => $attr['value_name'],
 							'value_type' => $attr['value_type']
-						],
-						['%d','%s','%s','%s','%s','%s']
-					);
+						];
+
+						if ($existing_attr) {
+							// UPDATE
+							$wpdb->update(
+								$table_attrs,
+								$attr_data,
+								['id' => $existing_attr],
+								['%s','%s','%s'],
+								['%d']
+							);
+						} else {
+							// INSERT
+							$wpdb->insert(
+								$table_attrs,
+								[
+									'detalle_id'  => $detalle_id,
+									'attribute_id'=> $attr['id'],
+									'name'        => $attr['name'],
+									'value_id'    => $attr['value_id'],
+									'value_name'  => $attr['value_name'],
+									'value_type'  => $attr['value_type']
+								],
+								['%d','%s','%s','%s','%s','%s']
+							);
+						}
+					}
 				}
 			}
 		}

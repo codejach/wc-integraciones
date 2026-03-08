@@ -90,11 +90,12 @@ class Wc_Integraciones_Activator {
 		$sql3 = "CREATE TABLE IF NOT EXISTS $table_atributos (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			detalle_id BIGINT NOT NULL,
-			attribute_id VARCHAR(100),
+			attribute_id VARCHAR(100) NOT NULL,
 			name VARCHAR(255),
-			value_id VARCHAR(100),
+			value_id VARCHAR(100) NOT NULL,	
 			value_name VARCHAR(255),
 			value_type VARCHAR(50),
+    		UNIQUE KEY unique_attr (detalle_id, attribute_id, value_id),
 			FOREIGN KEY (detalle_id) REFERENCES $table_detalle(id)
 				ON DELETE CASCADE
 		) $charset_collate;";
