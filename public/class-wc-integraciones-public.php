@@ -135,6 +135,22 @@ class Wc_Integraciones_Public {
 	public function handle_meli_webhook($request) {
 		$data = $request->get_json_params();
 
+		// Case #3: Validación por IDs de Entorno
+		$expected_user_id = WC_Integraciones_Config::get('meli_user_id');
+		$expected_app_id  = WC_Integraciones_Config::get('meli_application_id');
+
+		// Validar user_id (obligatorio en Mercado Libre)
+		if (isset($data['user_id']) && !empty($expected_user_id) && (int)$data['user_id'] !== (int)$expected_user_id) {
+			error_log('❌ Webhook rechazado: User ID no coincide con el entorno.');
+			return new WP_REST_Response(['status' => 'unauthorized'], 401);
+		}
+
+		// Validar application_id (si viene en el payload y está configurado)
+		if (isset($data['application_id']) && !empty($expected_app_id) && (int)$data['application_id'] !== (int)$expected_app_id) {
+			error_log('❌ Webhook rechazado: Application ID no coincide.');
+			return new WP_REST_Response(['status' => 'unauthorized'], 401);
+		}
+
 		if (WC_Integraciones_Config::is_prod()) {
 			$webhook_url = "https://www.ninavestuariosinfantiles.com/wp-json/meli/v1/notifications/async";
 		} else {
@@ -217,7 +233,9 @@ class Wc_Integraciones_Public {
 		register_rest_route('meli/v1', '/asignar-sku', [
 			'methods' => 'POST',
 			'callback' => [$this, 'assign_sku_to_publication'],
-			'permission_callback' => '__return_true',
+			'permission_callback' => function() {
+				return current_user_can('manage_options');
+			},
 		]);
 	}
 

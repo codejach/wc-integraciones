@@ -64,7 +64,10 @@
 
 						fetch('/wp-json/meli/v1/asignar-sku', {
 							method: 'POST',
-							headers: {'Content-Type': 'application/json'},
+							headers: {
+								'Content-Type': 'application/json',
+								'X-WP-Nonce': wc_integraciones_admin.rest_nonce
+							},
 							body: JSON.stringify({detalle_id: detalleId, sku})
 						}).then(r => r.json()).then(data => {
 							timerSpan.textContent = data.success ? '✅ Guardado' : '❌ Error';

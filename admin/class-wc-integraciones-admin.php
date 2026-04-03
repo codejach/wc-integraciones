@@ -114,6 +114,9 @@ class Wc_Integraciones_Admin {
 
 		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/wc-integraciones-admin.js', array( 'jquery' ), $this->version, true );
 
+		wp_localize_script( $this->plugin_name, 'wc_integraciones_admin', array(
+			'rest_nonce' => wp_create_nonce( 'wp_rest' )
+		));
 	}
 
 	/**
@@ -536,6 +539,10 @@ class Wc_Integraciones_Admin {
 	public function guardar_meli_configuracion() {
 		if (!isset($_POST['meli_nonce']) || !wp_verify_nonce($_POST['meli_nonce'], 'guardar_meli_config')) {
 			wp_die('Acceso no autorizado.');
+		}
+
+		if (!current_user_can('manage_options')) {
+			wp_die('No tienes suficientes permisos para realizar esta acción.');
 		}
 
 		global $wpdb;
