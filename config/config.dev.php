@@ -1,5 +1,7 @@
 <?php
 
 return [
-    'api_ngrok_url' => 'https://db46-189-219-246-249.ngrok-free.app'
+    'api_ngrok_url' => '',
+    'meli_application_id' => '',
+    'meli_user_id' => '',
 ];
