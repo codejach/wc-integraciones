@@ -107,7 +107,30 @@
                             </tbody>
                         </table>
                     <?php else: ?>
-                        <p>No hay variaciones</p>
+                        <div style="padding:10px; border:1px solid #ccc; background:#f9f9f9;">
+                            <div style="margin-bottom: 15px; font-size: 13px;">
+                                <strong>Precio:</strong> <?php echo esc_html($pub['price']); ?> &nbsp;|&nbsp;
+                                <strong>Stock disponible:</strong> <?php echo esc_html($pub['available_quantity']); ?> &nbsp;|&nbsp;
+                                <strong>Vendidos:</strong> <?php echo esc_html($pub['sold_quantity']); ?>
+                            </div>
+                            <label><strong>SKU en Tienda para publicación sin variaciones:</strong></label><br><br>
+                            <?php if ($pub['logistic_type'] === 'fulfillment'): ?>
+                                <em>No aplicable (logística fulfillment)</em>
+                            <?php else: ?>
+                                <select class="sku-selector" style="width:70%;" data-publicacion-id="<?php echo esc_attr($pub['publicacion_id']); ?>">
+                                    <option value="">-- Seleccionar SKU --</option>
+                                    <?php foreach ($wc_products as $p): ?>
+                                        <option value="<?php echo esc_attr($p->sku); ?>"
+                                            <?php echo in_array($p->sku, $assigned_skus) && $pub['wc_sku'] !== $p->sku ? 'disabled' : ''; ?>
+                                            <?php selected($p->sku, $pub['wc_sku']); ?>>
+                                            <?php echo esc_html($p->sku . ' — ' . $p->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button class="cancel-btn button" style="display:none;">Cancelar</button>
+                                <span class="save-timer" style="margin-left:5px;color:#666;"></span>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                 </td>
             </tr>

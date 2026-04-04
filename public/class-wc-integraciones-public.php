@@ -239,26 +239,28 @@ class Wc_Integraciones_Public {
 		]);
 	}
 
-	// Lógica para asignar SKU a una publicación detalle
+	// Lógica para asignar SKU a una publicación o detalle
 	public function assign_sku_to_publication($request) {
 		global $wpdb;
 
-		$detalle_id = intval($request['detalle_id']);
+		$detalle_id = isset($request['detalle_id']) ? intval($request['detalle_id']) : 0;
+		$publicacion_id = isset($request['publicacion_id']) ? intval($request['publicacion_id']) : 0;
 		$sku = sanitize_text_field($request['sku']);
 
-		$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
-
-		$updated = $wpdb->update(
-			$table,
-			['wc_sku' => $sku],
-			['id' => $detalle_id],
-			['%s'],
-			['%d']
-		);
+		if ($detalle_id > 0) {
+			$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+			$updated = $wpdb->update($table, ['wc_sku' => $sku], ['id' => $detalle_id], ['%s'], ['%d']);
+		} else if ($publicacion_id > 0) {
+			$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+			$updated = $wpdb->update($table, ['wc_sku' => $sku], ['id' => $publicacion_id], ['%s'], ['%d']);
+		} else {
+			$updated = false;
+		}
 
 		return new WP_REST_Response([
 			'success' => (bool)$updated,
 			'detalle_id' => $detalle_id,
+			'publicacion_id' => $publicacion_id,
 			'sku' => $sku
 		], 200);
 	}
@@ -388,38 +390,52 @@ class Wc_Integraciones_Public {
 		}
 
 		foreach ($order_data['order_items'] as $item) {
+			$meli_item_id       = $item['item']['id'] ?? null;
 			$user_product_id 	= $item['item']['user_product_id'] ?? null;
 			$variation_id    	= $item['item']['variation_id'] ?? null;
 			$quantity        	= intval($item['quantity'] ?? 0) * $procesamiento;
 			$tags           	= $item['item']['tags'] ?? [];
 
-			if (!$user_product_id || !$variation_id || $quantity <= 0 ) {
+			if (!$meli_item_id || $quantity <= 0 ) {
 				error_log('⚠️ Datos incompletos en el item: ' . wp_json_encode($item));
 				continue;
 			}
 
-			error_log("🔍 Procesando item: user_product_id={$user_product_id}, variation_id={$variation_id}, quantity={$quantity}");
+			error_log("🔍 Procesando item: meli_item_id={$meli_item_id}, user_product_id={$user_product_id}, variation_id={$variation_id}, quantity={$quantity}");
 
-			// Buscar SKU correspondiente en tu tabla personalizada y devolver id y wc_sku
-			$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
-			$detalle = $wpdb->get_row($wpdb->prepare(
-				"SELECT id, wc_sku FROM $table WHERE user_product_id = %s AND variation_id = %s",
-				$user_product_id,
-				$variation_id
-			));
+			$wc_sku = null;
 
-			error_log("🔍 Detalle encontrado: " . wp_json_encode($detalle));
+			if ($variation_id) {
+				// Buscar SKU en variaciones
+				$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+				$detalle = $wpdb->get_row($wpdb->prepare(
+					"SELECT wc_sku FROM $table WHERE user_product_id = %s AND variation_id = %s",
+					$user_product_id,
+					$variation_id
+				));
+				$wc_sku = $detalle ? $detalle->wc_sku : null;
+			} else {
+				// Buscar SKU en publicaciones generales
+				$table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+				$pub = $wpdb->get_row($wpdb->prepare(
+					"SELECT wc_sku FROM $table_pub WHERE meli_item_id = %s",
+					$meli_item_id
+				));
+				$wc_sku = $pub ? $pub->wc_sku : null;
+			}
 
-			if (!$detalle || empty($detalle->wc_sku)) {
-				error_log("❌ No se encontró wc_sku para user_product_id={$user_product_id}, variation_id={$variation_id}");
+			error_log("🔍 SKU encontrado: " . ($wc_sku ? $wc_sku : 'ninguno'));
+
+			if (empty($wc_sku)) {
+				error_log("❌ No se encontró wc_sku para meli_item_id={$meli_item_id}, variation_id={$variation_id}");
 				continue;
 			}
 
 			// Buscar producto en WooCommerce por SKU
-			$product_id = wc_get_product_id_by_sku($detalle->wc_sku);
+			$product_id = wc_get_product_id_by_sku($wc_sku);
 
 			if (!$product_id) {
-				error_log("❌ No se encontró producto en WooCommerce con SKU {$detalle->wc_sku}");
+				error_log("❌ No se encontró producto en WooCommerce con SKU {$wc_sku}");
 				continue;
 			}
 
