@@ -44,9 +44,10 @@
 		// Manejo del guardado de SKU con temporizador y opción de cancelar
 		document.querySelectorAll('.sku-selector').forEach(function (select) {
 			select.addEventListener('change', function () {
-				const detalleId = this.dataset.detalleId;
+				const detalleId = this.dataset.detalleId || null;
+				const pubId = this.dataset.publicacionId || null;
 				const sku = this.value;
-				const row = this.closest('tr');
+				const row = this.closest('tr') || this.closest('div');
 
 				let timerSpan = row.querySelector('.save-timer');
 				let cancelBtn = row.querySelector('.cancel-btn');
@@ -68,7 +69,7 @@
 								'Content-Type': 'application/json',
 								'X-WP-Nonce': wc_integraciones_admin.rest_nonce
 							},
-							body: JSON.stringify({detalle_id: detalleId, sku})
+							body: JSON.stringify({detalle_id: detalleId, publicacion_id: pubId, sku})
 						}).then(r => r.json()).then(data => {
 							timerSpan.textContent = data.success ? '✅ Guardado' : '❌ Error';
 						})

@@ -202,7 +202,18 @@ class Wc_Integraciones_Admin {
 		$table_attr = $wpdb->prefix . 'wc_integraciones_meli_variacion_atributos';
 
 		$publicaciones = $wpdb->get_results("
-			SELECT p.*, d.id as detalle_id, d.variation_id, d.price as var_price, d.available_quantity, d.sold_quantity, d.user_product_id, d.wc_sku, p.logistic_type
+			SELECT 
+				p.*, 
+				d.id as detalle_id, 
+				d.variation_id,
+
+				COALESCE(d.price, p.price) as price,
+				COALESCE(d.available_quantity, p.available_quantity) as available_quantity,
+				COALESCE(d.sold_quantity, p.sold_quantity) as sold_quantity,
+				COALESCE(d.wc_sku, p.wc_sku) as wc_sku,
+
+				d.user_product_id,
+				p.logistic_type
 			FROM $table_pub p
 			LEFT JOIN $table_det d ON p.id = d.publicacion_id
 			ORDER BY p.logistic_type, p.date_created DESC
@@ -244,11 +255,16 @@ class Wc_Integraciones_Admin {
 
 			if (!isset($grouped_publicaciones[$id])) {
 				$grouped_publicaciones[$id] = [
+					'publicacion_id' => $row->id,
 					'item_id' => $row->meli_item_id,
 					'title' => $row->title,
 					'thumbnail' => $row->thumbnail,
 					'status' => $row->status,
 					'logistic_type' => $row->logistic_type,
+					'price' => $row->price,
+					'available_quantity' => $row->available_quantity,
+					'sold_quantity' => $row->sold_quantity,
+					'wc_sku' => $row->wc_sku ?? '',
 					'variations' => []
 				];
 			}
@@ -257,7 +273,7 @@ class Wc_Integraciones_Admin {
 			if ($row->variation_id) {
 				$grouped_publicaciones[$id]['variations'][] = [
 					'variation_id' => $row->variation_id,
-					'price' => $row->var_price,
+					'price' => $row->price,
 					'available_quantity' => $row->available_quantity,
 					'sold_quantity' => $row->sold_quantity,
 					'user_product_id' => $row->user_product_id ?? '',
@@ -271,6 +287,9 @@ class Wc_Integraciones_Admin {
 		// Obtener SKUs asignados en WooCommerce
 		$assigned_skus = [];
 		foreach ($grouped_publicaciones as $pub) {
+			if (empty($pub['variations']) && !empty($pub['wc_sku'])) {
+				$assigned_skus[] = $pub['wc_sku'];
+			}
 			foreach ($pub['variations'] as $var) {
 				if (!empty($var['wc_sku'])) {
 					$assigned_skus[] = $var['wc_sku'];

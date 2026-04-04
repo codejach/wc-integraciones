@@ -66,6 +66,7 @@ class Wc_Integraciones_Activator {
 			thumbnail VARCHAR(255),
 			status VARCHAR(50),
 			logistic_type VARCHAR(50),
+			wc_sku VARCHAR(100),
 			date_created DATETIME DEFAULT CURRENT_TIMESTAMP
 		) $charset_collate;";
 
