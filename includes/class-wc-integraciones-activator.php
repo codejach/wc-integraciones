@@ -67,6 +67,7 @@ class Wc_Integraciones_Activator {
 			status VARCHAR(50),
 			logistic_type VARCHAR(50),
 			wc_sku VARCHAR(100),
+			sync_stock_enabled TINYINT(1) DEFAULT 0,
 			date_created DATETIME DEFAULT CURRENT_TIMESTAMP
 		) $charset_collate;";
 
@@ -82,6 +83,7 @@ class Wc_Integraciones_Activator {
 			sold_quantity INT,
 			user_product_id VARCHAR(100),
 			wc_sku VARCHAR(100),
+			sync_stock_enabled TINYINT(1) DEFAULT 0,
 			FOREIGN KEY (publicacion_id) REFERENCES $table_publicaciones(id) 
 				ON DELETE CASCADE
 		) $charset_collate;";
@@ -120,6 +122,20 @@ class Wc_Integraciones_Activator {
 			INDEX idx_created (created_at)
 		) $charset_collate;";
 
+		// Tabla Log de Inventario
+		$table_log = $wpdb->prefix . 'wc_integraciones_meli_log_inventario';
+		$sql5 = "CREATE TABLE IF NOT EXISTS $table_log (
+			id BIGINT AUTO_INCREMENT PRIMARY KEY,
+			product_id BIGINT,
+			sku VARCHAR(100),
+			origin VARCHAR(20),
+			old_stock INT,
+			new_stock INT,
+			inhibir_sincronizacion_meli TINYINT(1) DEFAULT 0,
+			description TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		) $charset_collate;";
+
 
 		require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 		dbDelta($sql);
@@ -127,5 +143,6 @@ class Wc_Integraciones_Activator {
 		dbDelta($sql2);
 		dbDelta($sql3);
 		dbDelta($sql4);
+		dbDelta($sql5);
 	}
 }

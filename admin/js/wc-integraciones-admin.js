@@ -1,4 +1,4 @@
-(function( $ ) {
+(function ($) {
 	'use strict';
 
 	/**
@@ -28,18 +28,18 @@
 	 * Although scripts in the WordPress core, Plugins and Themes may be
 	 * practising this, we should strive to set a better example in our own work.
 	 */
-	
-    $(document).ready(function() {
-        const $toggleBtn = $('#toggle_secret');
-        const $secretField = $('#meli_secret_key');
 
-        if ($toggleBtn.length && $secretField.length) {
-            $toggleBtn.on('click', function() {
-                const isPassword = $secretField.attr('type') === 'password';
-                $secretField.attr('type', isPassword ? 'text' : 'password');
-                $(this).text(isPassword ? '🙈 Ocultar' : '👁 Mostrar');
-            });
-        }
+	$(document).ready(function () {
+		const $toggleBtn = $('#toggle_secret');
+		const $secretField = $('#meli_secret_key');
+
+		if ($toggleBtn.length && $secretField.length) {
+			$toggleBtn.on('click', function () {
+				const isPassword = $secretField.attr('type') === 'password';
+				$secretField.attr('type', isPassword ? 'text' : 'password');
+				$(this).text(isPassword ? '🙈 Ocultar' : '👁 Mostrar');
+			});
+		}
 
 		// Manejo del guardado de SKU con temporizador y opción de cancelar
 		document.querySelectorAll('.sku-selector').forEach(function (select) {
@@ -69,13 +69,13 @@
 								'Content-Type': 'application/json',
 								'X-WP-Nonce': wc_integraciones_admin.rest_nonce
 							},
-							body: JSON.stringify({detalle_id: detalleId, publicacion_id: pubId, sku})
+							body: JSON.stringify({ detalle_id: detalleId, publicacion_id: pubId, sku })
 						}).then(r => r.json()).then(data => {
 							timerSpan.textContent = data.success ? '✅ Guardado' : '❌ Error';
 						})
-						.catch(() => {
-							timerSpan.textContent = '❌ Error. Inténtalo de nuevo.';
-						});
+							.catch(() => {
+								timerSpan.textContent = '❌ Error. Inténtalo de nuevo.';
+							});
 					} else {
 						timerSpan.textContent = `Guardando en ${counter}s...`;
 					}
@@ -88,6 +88,55 @@
 				};
 			});
 		});
-    });
 
-})( jQuery );
+		// Toggle de sincronización de stock hacia Mercado Libre
+		document.querySelectorAll('.toggle-sync-btn').forEach(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+
+				const detalleId = this.dataset.detalleId || null;
+				const publicacionId = this.dataset.publicacionId || null;
+				const currentEnabled = parseInt(this.dataset.enabled, 10);
+				const newEnabled = currentEnabled ? 0 : 1;
+
+				btn.disabled = true;
+				btn.textContent = 'Guardando...';
+
+				fetch('/wp-json/meli/v1/toggle-sync', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-WP-Nonce': wc_integraciones_admin.rest_nonce
+					},
+					body: JSON.stringify({
+						detalle_id: detalleId,
+						publicacion_id: publicacionId,
+						enabled: newEnabled
+					})
+				})
+					.then(r => r.json())
+					.then(data => {
+						if (data.success) {
+							btn.dataset.enabled = newEnabled;
+							btn.textContent = newEnabled ? 'Sincronización: ON' : 'Sincronización: OFF';
+							if (newEnabled) {
+								btn.classList.add('button-primary');
+							} else {
+								btn.classList.remove('button-primary');
+							}
+						} else {
+							btn.textContent = '❌ Error al guardar';
+						}
+					})
+					.catch(() => {
+						btn.textContent = '❌ Error de red';
+					})
+					.finally(() => {
+						btn.disabled = false;
+					});
+			});
+		});
+
+	});
+
+})(jQuery);

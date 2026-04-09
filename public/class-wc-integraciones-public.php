@@ -398,7 +398,7 @@ class Wc_Integraciones_Public {
 		if ($order_data['fulfilled'] === true) {
 			$message = 'ℹ️ La orden ya ha sido cumplida, no se procesará.';
 			error_log($message);
-			return ['success' => true, 'message' => $message, 'response' => $order_data]	;
+			return ['success' => true, 'message' => $message, 'response' => $order_data];
 		}
 
 		if (empty($order_data['order_items'])) {
@@ -460,7 +460,7 @@ class Wc_Integraciones_Public {
 			$product = wc_get_product($product_id);
 
 			if (!$product || !$product->managing_stock()) {
-				error_log("⚠️ El producto con SKU {$detalle->wc_sku} no gestiona inventario o no es válido.");
+				error_log("⚠️ El producto con SKU {$wc_sku} no gestiona inventario o no es válido.");
 				continue;
 			}
 
@@ -472,12 +472,23 @@ class Wc_Integraciones_Public {
             self::$inhibir_sincronizacion_meli = true;
 
 			$product->set_stock_quantity($new_stock);
-			$product->save();
+            $product->save();
+
+            // Registrar Log
+            $this->log_inventory(
+                $product_id,
+                $wc_sku,
+                'meli',
+                $current_stock,
+                $new_stock,
+                1,
+                "Venta de {$quantity} unidades desde Mercado Libre (Item: {$meli_item_id})"
+            );
 
             // Desactivar inhibición
             self::$inhibir_sincronizacion_meli = false;
 
-			error_log("✅ Stock actualizado para SKU {$detalle->wc_sku}: {$current_stock} → {$new_stock} (venta de {$quantity} unidades)");
+			error_log("✅ Stock actualizado para SKU {$wc_sku}: {$current_stock} → {$new_stock} (venta de {$quantity} unidades)");
 		}
 
 		return ['success' => true, 'message' => 'Procesamiento completado.', 'response' => $order_data];
@@ -543,33 +554,56 @@ class Wc_Integraciones_Public {
         $new_stock = $product->get_stock_quantity();
         error_log("🔍 Sincronizando stock para SKU: $sku (Stock WC: $new_stock)");
 
-        // Buscar en la tabla de detalles (variaciones)
+        // Buscar en la tabla de detalles (variaciones) con JOIN a publicaciones para obtener meli_item_id
         $table_detalle = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+        $table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+		
         $detalle = $wpdb->get_row($wpdb->prepare(
-            "SELECT meli_item_id, variation_id FROM $table_detalle WHERE wc_sku = %s",
+            "SELECT p.meli_item_id, d.variation_id, d.sync_stock_enabled 
+             FROM $table_detalle d
+             INNER JOIN $table_pub p ON d.publicacion_id = p.id
+             WHERE d.wc_sku = %s",
             $sku
         ));
 
         $meli_item_id = null;
         $variation_id = null;
+        $sync_enabled = 0;
 
         if ($detalle) {
             $meli_item_id = $detalle->meli_item_id;
             $variation_id = $detalle->variation_id;
+            $sync_enabled = $detalle->sync_stock_enabled;
         } else {
             // Buscar en la tabla de publicaciones (productos simples)
-            $table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
             $pub = $wpdb->get_row($wpdb->prepare(
-                "SELECT meli_item_id FROM $table_pub WHERE wc_sku = %s",
+                "SELECT meli_item_id, sync_stock_enabled FROM $table_pub WHERE wc_sku = %s",
                 $sku
             ));
             if ($pub) {
                 $meli_item_id = $pub->meli_item_id;
+                $sync_enabled = $pub->sync_stock_enabled;
             }
         }
 
         if (!$meli_item_id) {
             error_log("ℹ️ No se encontró vinculación en ML para SKU: $sku");
+            return;
+        }
+
+        // Registrar log del intento (indicando si está habilitado o no)
+        $this->log_inventory(
+            $product_id,
+            $sku,
+            'wc',
+            null,
+            $new_stock,
+            self::$inhibir_sincronizacion_meli ? 1 : 0,
+            $sync_enabled ? "Sincronización hacia ML iniciada." : "Sincronización hacia ML ignorada (Desactivado por el usuario)."
+        );
+
+        if (!$sync_enabled) {
+            error_log("🚫 Sincronización desactivada por el usuario para SKU: $sku");
             return;
         }
 
@@ -581,6 +615,24 @@ class Wc_Integraciones_Public {
         } else {
             error_log("❌ Falló la sincronización WC -> ML para SKU: $sku");
         }
+    }
+
+    /**
+     * Helper para registrar cambios de inventario
+     */
+    private function log_inventory($product_id, $sku, $origin, $old_stock, $new_stock, $inhibir, $description) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wc_integraciones_meli_log_inventario';
+        $wpdb->insert($table, [
+            'product_id' => $product_id,
+            'sku' => $sku,
+            'origin' => $origin,
+            'old_stock' => $old_stock,
+            'new_stock' => $new_stock,
+            'inhibir_sincronizacion_meli' => $inhibir,
+            'description' => $description,
+            'created_at' => current_time('mysql')
+        ]);
     }
 
 }
