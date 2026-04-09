@@ -80,4 +80,55 @@ class WC_Integraciones_Meli {
 
         return $body['access_token'];
     }
+
+    /**
+     * Actualiza el stock de un item o una variación en Mercado Libre.
+     * 
+     * @param string $meli_item_id El ID del item en Mercado Libre (e.g., MLA12345678).
+     * @param int|null $variation_id El ID de la variación (opcional).
+     * @param int $new_stock La nueva cantidad disponible.
+     * @return array|bool Respuesta de la API o false en caso de error.
+     */
+    public function actualizar_stock($meli_item_id, $variation_id, $new_stock) {
+        $access_token = $this->obtener_token();
+        if (!$access_token) {
+            return false;
+        }
+
+        $url = "https://api.mercadolibre.com/items/{$meli_item_id}";
+        if ($variation_id) {
+            $url .= "/variations/{$variation_id}";
+        }
+
+        $body = [
+            'available_quantity' => $new_stock
+        ];
+
+        error_log("🚀 Enviando actualización de stock a ML: ID={$meli_item_id}, Variación=" . ($variation_id ?: "N/A") . ", Nuevo Stock={$new_stock}");
+
+        $response = wp_remote_request($url, [
+            'method'  => 'PUT',
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type'  => 'application/json',
+            ],
+            'body'    => wp_json_encode($body)
+        ]);
+
+        if (is_wp_error($response)) {
+            error_log('❌ Error al actualizar stock en ML: ' . $response->get_error_message());
+            return false;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        $response_body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($status_code < 200 || $status_code >= 300) {
+            error_log('❌ Error en respuesta de ML (Status ' . $status_code . '): ' . wp_json_encode($response_body));
+            return false;
+        }
+
+        error_log('✅ Stock actualizado exitosamente en Mercado Libre.');
+        return $response_body;
+    }
 }

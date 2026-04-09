@@ -67,6 +67,8 @@ class Wc_Integraciones_Admin {
 
 		add_action('admin_post' . self::get_meli_auth_suffix() . '_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
 
+		add_action('rest_api_init', [$this, 'register_sync_toggle_route']);
+
 		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
@@ -176,7 +178,7 @@ class Wc_Integraciones_Admin {
 				echo '<p>Historial de registros</p>';
 				break;
 			case 'log':
-				echo '<p>Logs del plugin</p>';
+				$this->display_log();
 				break;
 			case 'configuracion':
             	$this->display_configuracion();
@@ -211,6 +213,7 @@ class Wc_Integraciones_Admin {
 				COALESCE(d.available_quantity, p.available_quantity) as available_quantity,
 				COALESCE(d.sold_quantity, p.sold_quantity) as sold_quantity,
 				COALESCE(d.wc_sku, p.wc_sku) as wc_sku,
+				COALESCE(d.sync_stock_enabled, p.sync_stock_enabled) as sync_stock_enabled,
 
 				d.user_product_id,
 				p.logistic_type
@@ -265,6 +268,7 @@ class Wc_Integraciones_Admin {
 					'available_quantity' => $row->available_quantity,
 					'sold_quantity' => $row->sold_quantity,
 					'wc_sku' => $row->wc_sku ?? '',
+					'sync_stock_enabled' => $row->sync_stock_enabled,
 					'variations' => []
 				];
 			}
@@ -280,6 +284,7 @@ class Wc_Integraciones_Admin {
 					'attributes' => $atributos_por_detalle[$row->detalle_id] ?? [],
 					'detalle_id' => $row->detalle_id,
 					'wc_sku' => $row->wc_sku ?? '',
+					'sync_stock_enabled' => $row->sync_stock_enabled,
 				];
 			}
 		}
@@ -717,5 +722,51 @@ class Wc_Integraciones_Admin {
 
 	public static function get_meli_auth_suffix() {
 		return WC_Integraciones_Config::is_prod() ? '' : '_nopriv';
+	}
+
+	/**
+	 * Registrar ruta para activar/desactivar sincronización de SKU
+	 */
+	public function register_sync_toggle_route() {
+		register_rest_route('meli/v1', '/toggle-sync', [
+			'methods' => 'POST',
+			'callback' => [$this, 'handle_toggle_sync'],
+			'permission_callback' => function() {
+				return current_user_can('manage_options');
+			},
+		]);
+	}
+
+	/**
+	 * Callback para el toggle de sincronización
+	 */
+	public function handle_toggle_sync($request) {
+		global $wpdb;
+		$detalle_id = isset($request['detalle_id']) ? intval($request['detalle_id']) : 0;
+		$publicacion_id = isset($request['publicacion_id']) ? intval($request['publicacion_id']) : 0;
+		$enabled = isset($request['enabled']) ? intval($request['enabled']) : 0;
+
+		if ($detalle_id > 0) {
+			$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+			$updated = $wpdb->update($table, ['sync_stock_enabled' => $enabled], ['id' => $detalle_id], ['%d'], ['%d']);
+		} else if ($publicacion_id > 0) {
+			$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+			$updated = $wpdb->update($table, ['sync_stock_enabled' => $enabled], ['id' => $publicacion_id], ['%d'], ['%d']);
+		} else {
+			return new WP_REST_Response(['success' => false, 'message' => 'Faltan parámetros'], 400);
+		}
+
+		return new WP_REST_Response(['success' => (bool)$updated, 'enabled' => $enabled], 200);
+	}
+
+	/**
+	 * Muestra la pestaña de logs
+	 */
+	private function display_log() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'wc_integraciones_meli_log_inventario';
+		$logs = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 100");
+
+		include_once plugin_dir_path(__FILE__) . 'partials/mercadolibre/log/view.php';
 	}
 }

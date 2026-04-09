@@ -99,6 +99,17 @@
                                                 <?php endforeach; ?>
                                             </select>
                                             <button class="cancel-btn button" style="display:none;">Cancelar</button>
+                                            
+                                            <?php if (!empty($var['wc_sku'])): ?>
+                                                <div style="margin-top: 5px;">
+                                                    <button class="toggle-sync-btn button <?php echo $var['sync_stock_enabled'] ? 'button-primary' : ''; ?>" 
+                                                            data-detalle-id="<?php echo $var['detalle_id']; ?>" 
+                                                            data-enabled="<?php echo $var['sync_stock_enabled']; ?>">
+                                                        <?php echo $var['sync_stock_enabled'] ? 'Sincronización: ON' : 'Sincronización: OFF'; ?>
+                                                    </button>
+                                                </div>
+                                            <?php endif; ?>
+
                                             <span class="save-timer" style="margin-left:5px;color:#666;display:block;"></span>
                                         <?php endif; ?>
                                     </td>
@@ -128,6 +139,17 @@
                                     <?php endforeach; ?>
                                 </select>
                                 <button class="cancel-btn button" style="display:none;">Cancelar</button>
+
+                                <?php if (!empty($pub['wc_sku'])): ?>
+                                    <div style="margin-top: 5px;">
+                                        <button class="toggle-sync-btn button <?php echo $pub['sync_stock_enabled'] ? 'button-primary' : ''; ?>" 
+                                                data-publicacion-id="<?php echo esc_attr($pub['publicacion_id']); ?>" 
+                                                data-enabled="<?php echo $pub['sync_stock_enabled']; ?>">
+                                            <?php echo $pub['sync_stock_enabled'] ? 'Sincronización: ON' : 'Sincronización: OFF'; ?>
+                                        </button>
+                                    </div>
+                                <?php endif; ?>
+
                                 <span class="save-timer" style="margin-left:5px;color:#666;"></span>
                             <?php endif; ?>
                         </div>
