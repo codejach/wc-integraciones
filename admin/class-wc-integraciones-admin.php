@@ -3,7 +3,7 @@
 /**
  * The admin-specific functionality of the plugin.
  *
- * @link       https://https://codejach.github.io/curriculo/
+ * @link       https://codejach.github.io/curriculo/
  * @since      1.0.0
  *
  * @package    Wc_Integraciones
