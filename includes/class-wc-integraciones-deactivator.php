@@ -30,6 +30,10 @@ class Wc_Integraciones_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
+        $timestamp = wp_next_scheduled('meli_refresh_token_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'meli_refresh_token_cron');
+        }
 
 	}
 

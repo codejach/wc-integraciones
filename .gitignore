@@ -5,3 +5,5 @@ wp-config.php
 *.log
 .idea/
 .vscode/
+artifacts/
+docs/

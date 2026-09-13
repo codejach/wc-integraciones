@@ -34,12 +34,22 @@
                 <th>Título</th>
                 <th>Miniatura</th>
                 <th>Estatus</th>
+                <th>Modelo</th>
+                <th>Familia</th>
                 <th>Variaciones</th>
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($grouped_publicaciones as $pub): ?>
-            <tr style="background-color: <?php echo ($pub['logistic_type'] === 'fulfillment') ? '#f0f0f0' : '#ffffff'; ?>">
+            <?php
+            $current_family = null;
+            foreach ($grouped_publicaciones as $pub):
+                $is_family = $pub['model_type'] === 'family';
+                $family_changed = $is_family && $pub['family_id'] !== $current_family;
+                if ($is_family) {
+                    $current_family = $pub['family_id'];
+                }
+            ?>
+            <tr style="background-color: <?php echo ($pub['logistic_type'] === 'fulfillment') ? '#f0f0f0' : ($family_changed ? '#f0f8ff' : '#ffffff'); ?>">
                 <td><?php echo esc_html($pub['item_id']); ?></td>
                 <td><?php echo esc_html($pub['title']); ?></td>
                 <td>
@@ -48,6 +58,15 @@
                     <?php endif; ?>
                 </td>
                 <td><?php echo esc_html($pub['status']); ?></td>
+                <td><?php echo esc_html($pub['model_type']); ?></td>
+                <td>
+                    <?php if ($is_family && !empty($pub['family_name'])): ?>
+                        <strong><?php echo esc_html($pub['family_name']); ?></strong><br>
+                        <small>ID: <?php echo esc_html($pub['family_id']); ?></small>
+                    <?php else: ?>
+                        <em>—</em>
+                    <?php endif; ?>
+                </td>
                 <td>
                     <?php if (!empty($pub['variations'])): ?>
                         <table style="width:100%; border:1px solid #ccc; margin:5px 0;">
@@ -65,7 +84,7 @@
                             <tbody>
                                 <?php foreach ($pub['variations'] as $var): ?>
                                 <tr>
-                                    <td><?php echo esc_html($var['variation_id']); ?></td>
+                                    <td><?php echo $var['variation_id'] ? esc_html($var['variation_id']) : '<em>N/A (family)</em>'; ?></td>
                                     <td><?php echo esc_html($var['price']); ?></td>
                                     <td><?php echo esc_html($var['available_quantity']); ?></td>
                                     <td><?php echo esc_html($var['sold_quantity']); ?></td>
@@ -88,7 +107,7 @@
                                         <?php if ($pub['logistic_type'] === 'fulfillment'): ?>
                                             <em>No aplicable (logística fulfillment)</em>
                                         <?php else: ?>
-                                            <select class="sku-selector" style="width:70%;" data-detalle-id="<?php echo $var['detalle_id']; ?>">
+                                            <select class="sku-selector" style="width:70%;" data-detalle-id="<?php echo esc_attr($var['detalle_id']); ?>">
                                                 <option value="">-- Seleccionar SKU --</option>
                                                 <?php foreach ($wc_products as $p): ?>
                                                     <option value="<?php echo esc_attr($p->sku); ?>"
@@ -99,6 +118,17 @@
                                                 <?php endforeach; ?>
                                             </select>
                                             <button class="cancel-btn button" style="display:none;">Cancelar</button>
+                                            
+                                            <?php if (!empty($var['wc_sku'])): ?>
+                                                <div style="margin-top: 5px;">
+                                                    <button class="toggle-sync-btn button <?php echo $var['sync_stock_enabled'] ? 'button-primary' : ''; ?>" 
+                                                            data-detalle-id="<?php echo $var['detalle_id']; ?>" 
+                                                            data-enabled="<?php echo $var['sync_stock_enabled']; ?>">
+                                                        <?php echo $var['sync_stock_enabled'] ? 'Sincronización: ON' : 'Sincronización: OFF'; ?>
+                                                    </button>
+                                                </div>
+                                            <?php endif; ?>
+
                                             <span class="save-timer" style="margin-left:5px;color:#666;display:block;"></span>
                                         <?php endif; ?>
                                     </td>
@@ -107,7 +137,41 @@
                             </tbody>
                         </table>
                     <?php else: ?>
-                        <p>No hay variaciones</p>
+                        <div style="padding:10px; border:1px solid #ccc; background:#f9f9f9;">
+                            <div style="margin-bottom: 15px; font-size: 13px;">
+                                <strong>Precio:</strong> <?php echo esc_html($pub['price']); ?> &nbsp;|&nbsp;
+                                <strong>Stock disponible:</strong> <?php echo esc_html($pub['available_quantity']); ?> &nbsp;|&nbsp;
+                                <strong>Vendidos:</strong> <?php echo esc_html($pub['sold_quantity']); ?>
+                            </div>
+                            <label><strong>SKU en Tienda para publicación sin variaciones:</strong></label><br><br>
+                            <?php if ($pub['logistic_type'] === 'fulfillment'): ?>
+                                <em>No aplicable (logística fulfillment)</em>
+                            <?php else: ?>
+                                <select class="sku-selector" style="width:70%;" data-publicacion-id="<?php echo esc_attr($pub['publicacion_id']); ?>">
+                                    <option value="">-- Seleccionar SKU --</option>
+                                    <?php foreach ($wc_products as $p): ?>
+                                        <option value="<?php echo esc_attr($p->sku); ?>"
+                                            <?php echo in_array($p->sku, $assigned_skus) && $pub['wc_sku'] !== $p->sku ? 'disabled' : ''; ?>
+                                            <?php selected($p->sku, $pub['wc_sku']); ?>>
+                                            <?php echo esc_html($p->sku . ' — ' . $p->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button class="cancel-btn button" style="display:none;">Cancelar</button>
+
+                                <?php if (!empty($pub['wc_sku'])): ?>
+                                    <div style="margin-top: 5px;">
+                                        <button class="toggle-sync-btn button <?php echo $pub['sync_stock_enabled'] ? 'button-primary' : ''; ?>" 
+                                                data-publicacion-id="<?php echo esc_attr($pub['publicacion_id']); ?>" 
+                                                data-enabled="<?php echo $pub['sync_stock_enabled']; ?>">
+                                            <?php echo $pub['sync_stock_enabled'] ? 'Sincronización: ON' : 'Sincronización: OFF'; ?>
+                                        </button>
+                                    </div>
+                                <?php endif; ?>
+
+                                <span class="save-timer" style="margin-left:5px;color:#666;"></span>
+                            <?php endif; ?>
+                        </div>
                     <?php endif; ?>
                 </td>
             </tr>
