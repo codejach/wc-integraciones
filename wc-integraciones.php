@@ -16,7 +16,7 @@
  * Plugin Name:       WooCommerce Integraciones
  * Plugin URI:        https://github.com/codejach/wc-integraciones
  * Description:       Administra y sincroniza tus integraciones de WooCommerce con múltiples plataformas.
- * Version:           1.0.8
+ * Version:           1.0.9
  * Author:            Alberto Chávez
  * Author URI:        https://codejach.github.io/curriculo/
  * License:           MIT
@@ -35,7 +35,7 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'WC_INTEGRACIONES_VERSION', '1.0.8' );
+define( 'WC_INTEGRACIONES_VERSION', '1.0.9' );
 
 /**
  * The code that runs during plugin activation.

@@ -3,7 +3,7 @@
 ## Project Overview
 This project is a WordPress plugin named **WooCommerce Integraciones** (`wc-integraciones`).
 **Description:** Administra y sincroniza tus integraciones de WooCommerce con múltiples plataformas.
-**Version:** 1.0.7
+**Version:** 1.0.9
 **Text Domain:** `wc-integraciones`
 
 ## Architecture & Structure
