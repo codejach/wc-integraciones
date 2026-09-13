@@ -34,12 +34,22 @@
                 <th>Título</th>
                 <th>Miniatura</th>
                 <th>Estatus</th>
+                <th>Modelo</th>
+                <th>Familia</th>
                 <th>Variaciones</th>
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($grouped_publicaciones as $pub): ?>
-            <tr style="background-color: <?php echo ($pub['logistic_type'] === 'fulfillment') ? '#f0f0f0' : '#ffffff'; ?>">
+            <?php
+            $current_family = null;
+            foreach ($grouped_publicaciones as $pub):
+                $is_family = $pub['model_type'] === 'family';
+                $family_changed = $is_family && $pub['family_id'] !== $current_family;
+                if ($is_family) {
+                    $current_family = $pub['family_id'];
+                }
+            ?>
+            <tr style="background-color: <?php echo ($pub['logistic_type'] === 'fulfillment') ? '#f0f0f0' : ($family_changed ? '#f0f8ff' : '#ffffff'); ?>">
                 <td><?php echo esc_html($pub['item_id']); ?></td>
                 <td><?php echo esc_html($pub['title']); ?></td>
                 <td>
@@ -48,6 +58,15 @@
                     <?php endif; ?>
                 </td>
                 <td><?php echo esc_html($pub['status']); ?></td>
+                <td><?php echo esc_html($pub['model_type']); ?></td>
+                <td>
+                    <?php if ($is_family && !empty($pub['family_name'])): ?>
+                        <strong><?php echo esc_html($pub['family_name']); ?></strong><br>
+                        <small>ID: <?php echo esc_html($pub['family_id']); ?></small>
+                    <?php else: ?>
+                        <em>—</em>
+                    <?php endif; ?>
+                </td>
                 <td>
                     <?php if (!empty($pub['variations'])): ?>
                         <table style="width:100%; border:1px solid #ccc; margin:5px 0;">
@@ -65,7 +84,7 @@
                             <tbody>
                                 <?php foreach ($pub['variations'] as $var): ?>
                                 <tr>
-                                    <td><?php echo esc_html($var['variation_id']); ?></td>
+                                    <td><?php echo $var['variation_id'] ? esc_html($var['variation_id']) : '<em>N/A (family)</em>'; ?></td>
                                     <td><?php echo esc_html($var['price']); ?></td>
                                     <td><?php echo esc_html($var['available_quantity']); ?></td>
                                     <td><?php echo esc_html($var['sold_quantity']); ?></td>
@@ -88,7 +107,7 @@
                                         <?php if ($pub['logistic_type'] === 'fulfillment'): ?>
                                             <em>No aplicable (logística fulfillment)</em>
                                         <?php else: ?>
-                                            <select class="sku-selector" style="width:70%;" data-detalle-id="<?php echo $var['detalle_id']; ?>">
+                                            <select class="sku-selector" style="width:70%;" data-detalle-id="<?php echo esc_attr($var['detalle_id']); ?>">
                                                 <option value="">-- Seleccionar SKU --</option>
                                                 <?php foreach ($wc_products as $p): ?>
                                                     <option value="<?php echo esc_attr($p->sku); ?>"

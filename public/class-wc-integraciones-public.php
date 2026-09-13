@@ -424,7 +424,7 @@ class Wc_Integraciones_Public {
 			$wc_sku = null;
 
 			if ($variation_id) {
-				// Buscar SKU en variaciones
+				// Legacy: buscar SKU por user_product_id + variation_id.
 				$table = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
 				$detalle = $wpdb->get_row($wpdb->prepare(
 					"SELECT wc_sku FROM $table WHERE user_product_id = %s AND variation_id = %s",
@@ -433,13 +433,26 @@ class Wc_Integraciones_Public {
 				));
 				$wc_sku = $detalle ? $detalle->wc_sku : null;
 			} else {
-				// Buscar SKU en publicaciones generales
-				$table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
-				$pub = $wpdb->get_row($wpdb->prepare(
-					"SELECT wc_sku FROM $table_pub WHERE meli_item_id = %s",
-					$meli_item_id
-				));
-				$wc_sku = $pub ? $pub->wc_sku : null;
+				// Family: buscar SKU por user_product_id (detalle sin variation_id).
+				if ($user_product_id) {
+					$table_det = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+					$detalle = $wpdb->get_row($wpdb->prepare(
+						"SELECT wc_sku FROM $table_det WHERE user_product_id = %s AND variation_id IS NULL",
+						$user_product_id
+					));
+					$wc_sku = $detalle ? $detalle->wc_sku : null;
+				}
+
+				// Fallback a publicación por user_product_id o meli_item_id.
+				if (empty($wc_sku)) {
+					$table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+					$pub = $wpdb->get_row($wpdb->prepare(
+						"SELECT wc_sku FROM $table_pub WHERE meli_item_id = %s OR user_product_id = %s LIMIT 1",
+						$meli_item_id,
+						$user_product_id
+					));
+					$wc_sku = $pub ? $pub->wc_sku : null;
+				}
 			}
 
 			error_log("🔍 SKU encontrado: " . ($wc_sku ? $wc_sku : 'ninguno'));

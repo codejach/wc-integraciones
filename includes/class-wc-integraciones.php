@@ -85,6 +85,7 @@ class Wc_Integraciones {
 
 		$this->load_dependencies();
 		$this->set_locale();
+		$this->define_upgrade_hooks();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 
@@ -142,6 +143,11 @@ class Wc_Integraciones {
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-meli.php';
 
+		/**
+		 * The class responsible for database activation/upgrade.
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-activator.php';
+
 		$this->loader = new Wc_Integraciones_Loader();
 
 	}
@@ -161,6 +167,16 @@ class Wc_Integraciones {
 
 		$this->loader->add_action( 'plugins_loaded', $plugin_i18n, 'load_plugin_textdomain' );
 
+	}
+
+	/**
+	 * Register the database upgrade hook.
+	 *
+	 * @since    1.0.8
+	 * @access   private
+	 */
+	private function define_upgrade_hooks() {
+		$this->loader->add_action( 'plugins_loaded', 'Wc_Integraciones_Activator', 'maybe_upgrade' );
 	}
 
 	/**

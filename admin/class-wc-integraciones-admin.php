@@ -216,10 +216,13 @@ class Wc_Integraciones_Admin {
 				COALESCE(d.sync_stock_enabled, p.sync_stock_enabled) as sync_stock_enabled,
 
 				d.user_product_id,
-				p.logistic_type
+				p.logistic_type,
+				p.family_id,
+				p.family_name,
+				p.model_type
 			FROM $table_pub p
 			LEFT JOIN $table_det d ON p.id = d.publicacion_id
-			ORDER BY p.logistic_type, p.date_created DESC
+			ORDER BY p.family_id, p.logistic_type, p.date_created DESC
 		");
 
 		// Obtener todos los atributos (para agruparlos después)
@@ -269,12 +272,15 @@ class Wc_Integraciones_Admin {
 					'sold_quantity' => $row->sold_quantity,
 					'wc_sku' => $row->wc_sku ?? '',
 					'sync_stock_enabled' => $row->sync_stock_enabled,
+					'family_id' => $row->family_id ?? null,
+					'family_name' => $row->family_name ?? null,
+					'model_type' => $row->model_type ?? 'legacy',
 					'variations' => []
 				];
 			}
 
-			// añadir variación
-			if ($row->variation_id) {
+			// añadir variación (legacy) o detalle family (variation_id nulo).
+			if ($row->variation_id || ($row->model_type === 'family' && $row->detalle_id)) {
 				$grouped_publicaciones[$id]['variations'][] = [
 					'variation_id' => $row->variation_id,
 					'price' => $row->price,
@@ -363,6 +369,69 @@ class Wc_Integraciones_Admin {
 			return;
 		};
 
+		// Obtener detalles de los items para detectar familias y asegurar que se sincronicen todos los miembros.
+		$family_ids = [];
+		$items_by_id = array_flip($all_items);
+
+		$detail_chunks = array_chunk($all_items, 20);
+		foreach ($detail_chunks as $chunk) {
+			$ids = implode(',', $chunk);
+			$url = "https://api.mercadolibre.com/items?ids={$ids}"
+				. "&attributes=id,family_id";
+
+			$response = wp_remote_get($url, [
+				'headers' => ['Authorization' => 'Bearer ' . $access_token]
+			]);
+
+			if (is_wp_error($response)) {
+				error_log('Error en multiget de familias: ' . $response->get_error_message());
+				continue;
+			}
+
+			$details = json_decode(wp_remote_retrieve_body($response), true);
+			foreach ($details as $entry) {
+				if (!isset($entry['body']['family_id'])) {
+					continue;
+				}
+				$family_id = $entry['body']['family_id'];
+				if (!empty($family_id)) {
+					$family_ids[$family_id] = true;
+				}
+			}
+		}
+
+		// Buscar todos los miembros de cada familia detectada.
+		foreach (array_keys($family_ids) as $family_id) {
+			$family_offset = 0;
+			$family_limit = 50;
+			do {
+				$response_family = wp_remote_get(
+					"https://api.mercadolibre.com/users/{$user_id}/items/search?search_type=scan&family_id={$family_id}&limit={$family_limit}&offset={$family_offset}",
+					[
+						'headers' => ['Authorization' => 'Bearer ' . $access_token]
+					]
+				);
+
+				if (is_wp_error($response_family)) {
+					error_log("Error obteniendo familia $family_id: " . $response_family->get_error_message());
+					break;
+				}
+
+				$family_body = json_decode(wp_remote_retrieve_body($response_family), true);
+				if (!empty($family_body['results']) && is_array($family_body['results'])) {
+					foreach ($family_body['results'] as $family_item_id) {
+						if (!isset($items_by_id[$family_item_id])) {
+							$all_items[] = $family_item_id;
+							$items_by_id[$family_item_id] = true;
+						}
+					}
+				}
+
+				$family_total = $family_body['paging']['total'] ?? 0;
+				$family_offset += $family_limit;
+			} while ($family_offset < $family_total);
+		}
+
 		$table_pub = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
 		$table_det = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
 		$table_attrs = $wpdb->prefix . 'wc_integraciones_meli_variacion_atributos';
@@ -373,7 +442,7 @@ class Wc_Integraciones_Admin {
 			$ids = implode(',', $chunk);
 
 			$url = "https://api.mercadolibre.com/items?ids={$ids}"
-				. "&attributes=id,title,seller_id,price,base_price,original_price,initial_quantity,available_quantity,sold_quantity,thumbnail,status,shipping,variations";
+				. "&attributes=id,title,seller_id,price,base_price,original_price,initial_quantity,available_quantity,sold_quantity,thumbnail,status,shipping,variations,family_id,family_name,user_product_id,attributes,tags";
 
 			$response = wp_remote_get($url, [
 				'headers' => ['Authorization' => 'Bearer ' . $access_token]
@@ -399,136 +468,138 @@ class Wc_Integraciones_Admin {
 					continue;
 				}
 
+				// Detectar modelo del item.
+				$has_family = !empty($item['family_id']);
+				$has_variations = !empty($item['variations']) && is_array($item['variations']);
+
+				if ($has_family && !$has_variations) {
+					$model_type = 'family';
+				} elseif ($has_variations) {
+					$model_type = 'legacy';
+				} else {
+					$model_type = 'simple';
+				}
+
 				// Guardar en Publicaciones
 				$existing_id = $wpdb->get_var(
 					$wpdb->prepare("SELECT Id FROM $table_pub WHERE meli_item_id = %s", $item_id)
 				);
 
 				$inserted = null;
+				$pub_data = [
+					'title'              => $item['title'],
+					'seller_id'          => (int)$item['seller_id'],
+					'price'              => (float)$item['price'],
+					'base_price'         => (float)$item['base_price'],
+					'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
+					'initial_quantity'   => (int)$item['initial_quantity'],
+					'available_quantity' => (int)$item['available_quantity'],
+					'sold_quantity'      => (int)$item['sold_quantity'],
+					'thumbnail'          => $item['thumbnail'],
+					'status'             => $item['status'],
+					'logistic_type'      => $item['shipping']['logistic_type'],
+					'family_id'          => $has_family ? (int)$item['family_id'] : null,
+					'family_name'        => $has_family ? $item['family_name'] : null,
+					'model_type'         => $model_type,
+					'user_product_id'    => isset($item['user_product_id']) ? $item['user_product_id'] : null,
+				];
+
+				$pub_format = ['%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s','%d','%s','%s','%s'];
 
 				if ($existing_id) {
 					$wpdb->update(
 						$table_pub,
-						[
-							'title'              => $item['title'],
-							'seller_id'          => (int)$item['seller_id'],
-							'price'              => (float)$item['price'],
-							'base_price'         => (float)$item['base_price'],
-							'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
-							'initial_quantity'   => (int)$item['initial_quantity'],
-							'available_quantity' => (int)$item['available_quantity'],
-							'sold_quantity'      => (int)$item['sold_quantity'],
-							'thumbnail'          => $item['thumbnail'],
-							'status'             => $item['status'],
-							'logistic_type'      => $item['shipping']['logistic_type'],
-						],
+						$pub_data,
 						['Id' => $existing_id],
-						['%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'],
-						['%d'] // formato del WHERE
+						$pub_format,
+						['%d']
 					);
 				} else {
 					$inserted = $wpdb->insert(
 						$table_pub,
-						[
-							'meli_item_id'       => $item_id,
-							'title'              => $item['title'],
-							'seller_id'          => (int)$item['seller_id'],
-							'price'              => (float)$item['price'],
-							'base_price'         => (float)$item['base_price'],
-							'original_price'     => isset($item['original_price']) ? (float)$item['original_price'] : null,
-							'initial_quantity'   => (int)$item['initial_quantity'],
-							'available_quantity' => (int)$item['available_quantity'],
-							'sold_quantity'      => (int)$item['sold_quantity'],
-							'thumbnail'          => $item['thumbnail'],
-							'status'             => $item['status'],
-							'logistic_type'      => $item['shipping']['logistic_type'],
-						],
-						['%s','%s','%d','%f','%f','%f','%d','%d','%d','%s','%s','%s'] // formatos de datos para insert
+						array_merge($pub_data, ['meli_item_id' => $item_id]),
+						array_merge($pub_format, ['%s'])
 					);
 				}
 
 				// Obtener id del registro insertado o actualizado
 				$publicacion_id = $inserted ? $wpdb->insert_id : $existing_id;
 
-				error_log("Procesando item ID: $item_id, registro ID en BD: $publicacion_id");
+				error_log("Procesando item ID: $item_id, modelo: $model_type, registro ID en BD: $publicacion_id");
 
-				// Validar si hay variaciones
-				if (!isset($item['variations']) || !is_array($item['variations'])) {
-					error_log('No se encontraron variaciones para el item: ' . wp_json_encode($item));
-					continue;
-				}
+				if ($model_type === 'legacy') {
+					// Guardar variaciones
+					foreach ($item['variations'] as $variation) {
+						error_log('Procesando variación: ' . wp_json_encode($variation));
 
-				// Guardar variaciones
-				foreach ($item['variations'] as $variation) {
-					error_log('Procesando variación: ' . wp_json_encode($variation));
+						$existing = $wpdb->get_var( $wpdb->prepare(
+							"SELECT id FROM $table_det WHERE publicacion_id = %d AND variation_id = %s",
+							$publicacion_id,
+							$variation['id']
+						));
 
+						$data = [
+							'price' => $variation['price'],
+							'available_quantity' => $variation['available_quantity'],
+							'sold_quantity' => $variation['sold_quantity'],
+							'user_product_id' => isset($variation['user_product_id']) ? $variation['user_product_id'] : null,
+						];
+
+						$format = ['%f','%d','%d','%s'];
+
+						if ($existing) {
+							$wpdb->update($table_det, $data, ['id' => $existing], $format, ['%d']);
+						} else {
+							$wpdb->insert($table_det, array_merge($data, [
+								'publicacion_id' => $publicacion_id,
+								'variation_id' => $variation['id'],
+								'wc_sku' => null,
+							]), array_merge($format, ['%d','%s','%s']));
+						}
+
+						$detalle_id = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table_det WHERE publicacion_id=%d AND variation_id=%s", $publicacion_id, $variation['id']));
+
+						// Guardar atributos de variación
+						if (!empty($variation['attribute_combinations']) && is_array($variation['attribute_combinations'])) {
+							foreach ($variation['attribute_combinations'] as $attr) {
+								$this->sync_guardar_atributo($table_attrs, $detalle_id, $attr);
+							}
+						}
+					}
+				} elseif ($model_type === 'family') {
+					// Familia: un detalle ficticio sin variation_id para almacenar SKU/atributos.
 					$existing = $wpdb->get_var( $wpdb->prepare(
-						"SELECT id FROM $table_det WHERE publicacion_id = %d AND variation_id = %s",
-						$publicacion_id,
-						$variation['id']
+						"SELECT id FROM $table_det WHERE publicacion_id = %d AND variation_id IS NULL",
+						$publicacion_id
 					));
 
 					$data = [
-						'price' => $variation['price'],
-						'available_quantity' => $variation['available_quantity'],
-						'sold_quantity' => $variation['sold_quantity'],
-						'user_product_id' => isset($variation['user_product_id']) ? $variation['user_product_id'] : null,
+						'price' => (float)$item['price'],
+						'available_quantity' => (int)$item['available_quantity'],
+						'sold_quantity' => (int)$item['sold_quantity'],
+						'user_product_id' => isset($item['user_product_id']) ? $item['user_product_id'] : null,
 					];
-
 					$format = ['%f','%d','%d','%s'];
 
 					if ($existing) {
 						$wpdb->update($table_det, $data, ['id' => $existing], $format, ['%d']);
+						$detalle_id = $existing;
 					} else {
 						$wpdb->insert($table_det, array_merge($data, [
 							'publicacion_id' => $publicacion_id,
-							'variation_id' => $variation['id'],
+							'variation_id' => null,
 							'wc_sku' => null,
 						]), array_merge($format, ['%d','%s','%s']));
+						$detalle_id = $wpdb->insert_id;
 					}
 
-					$detalle_id = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table_det WHERE publicacion_id=%d AND variation_id=%s", $publicacion_id, $variation['id']));
-
-					// Guardar atributos de variación
-					foreach ($variation['attribute_combinations'] as $attr) {
-						$existing_attr = $wpdb->get_var(
-							$wpdb->prepare(
-								"SELECT id FROM $table_attrs WHERE detalle_id = %d AND attribute_id = %s AND value_name = %s",
-								$detalle_id,
-								$attr['id'],
-								$attr['value_name']
-							)
-						);
-
-						$attr_data = [
-							'name'       => $attr['name'],
-							'value_name' => $attr['value_name'],
-							'value_type' => $attr['value_type']
-						];
-
-						if ($existing_attr) {
-							// UPDATE
-							$wpdb->update(
-								$table_attrs,
-								$attr_data,
-								['id' => $existing_attr],
-								['%s','%s','%s'],
-								['%d']
-							);
-						} else {
-							// INSERT
-							$wpdb->insert(
-								$table_attrs,
-								[
-									'detalle_id'  => $detalle_id,
-									'attribute_id'=> $attr['id'],
-									'name'        => $attr['name'],
-									'value_id'    => $attr['value_id'],
-									'value_name'  => $attr['value_name'],
-									'value_type'  => $attr['value_type']
-								],
-								['%d','%s','%s','%s','%s','%s']
-							);
+					// Guardar atributos del item (modelo family).
+					if (!empty($item['attributes']) && is_array($item['attributes'])) {
+						foreach ($item['attributes'] as $attr) {
+							if (isset($attr['id']) && $attr['id'] === 'FABRIC_DESIGN') {
+								continue;
+							}
+							$this->sync_guardar_atributo($table_attrs, $detalle_id, $attr);
 						}
 					}
 				}
@@ -536,6 +607,65 @@ class Wc_Integraciones_Admin {
 		}
 
 		echo '<div class="notice notice-success is-dismissible"><p>Sincronización completada correctamente.</p></div>';
+	}
+
+	/**
+	 * Guarda o actualiza un atributo de variación/item.
+	 *
+	 * @since    1.0.8
+	 * @access   private
+	 * @param string $table_attrs Nombre de la tabla de atributos.
+	 * @param int    $detalle_id  ID del detalle.
+	 * @param array  $attr        Datos del atributo.
+	 */
+	private function sync_guardar_atributo($table_attrs, $detalle_id, $attr) {
+		global $wpdb;
+
+		$attr_id       = $attr['id'] ?? null;
+		$value_id      = $attr['value_id'] ?? null;
+		$value_name    = $attr['value_name'] ?? null;
+
+		if (!$attr_id || !$value_name) {
+			return;
+		}
+
+		$existing_attr = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT id FROM $table_attrs WHERE detalle_id = %d AND attribute_id = %s AND value_name = %s",
+				$detalle_id,
+				$attr_id,
+				$value_name
+			)
+		);
+
+		$attr_data = [
+			'name'       => $attr['name'] ?? '',
+			'value_name' => $value_name,
+			'value_type' => $attr['value_type'] ?? null,
+		];
+
+		if ($existing_attr) {
+			$wpdb->update(
+				$table_attrs,
+				$attr_data,
+				['id' => $existing_attr],
+				['%s','%s','%s'],
+				['%d']
+			);
+		} else {
+			$wpdb->insert(
+				$table_attrs,
+				[
+					'detalle_id'   => $detalle_id,
+					'attribute_id' => $attr_id,
+					'name'         => $attr['name'] ?? '',
+					'value_id'     => $value_id,
+					'value_name'   => $value_name,
+					'value_type'   => $attr['value_type'] ?? null,
+				],
+				['%d','%s','%s','%s','%s','%s']
+			);
+		}
 	}
 
 	// display configuración view

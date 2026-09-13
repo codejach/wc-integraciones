@@ -68,7 +68,12 @@ class Wc_Integraciones_Activator {
 			logistic_type VARCHAR(50),
 			wc_sku VARCHAR(100),
 			sync_stock_enabled TINYINT(1) DEFAULT 0,
-			date_created DATETIME DEFAULT CURRENT_TIMESTAMP
+			family_id BIGINT NULL,
+			family_name VARCHAR(255) NULL,
+			model_type VARCHAR(20) DEFAULT 'legacy',
+			user_product_id VARCHAR(100) NULL,
+			date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_family_id (family_id)
 		) $charset_collate;";
 
 
@@ -77,7 +82,7 @@ class Wc_Integraciones_Activator {
 		$sql2 = "CREATE TABLE IF NOT EXISTS $table_detalle (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
 			publicacion_id BIGINT NOT NULL,
-			variation_id VARCHAR(50) NOT NULL,
+			variation_id VARCHAR(50) NULL,
 			price DECIMAL(10,2),
 			available_quantity INT,
 			sold_quantity INT,
@@ -95,7 +100,7 @@ class Wc_Integraciones_Activator {
 			detalle_id BIGINT NOT NULL,
 			attribute_id VARCHAR(100) NOT NULL,
 			name VARCHAR(255),
-			value_id VARCHAR(100) NOT NULL,	
+			value_id VARCHAR(100) NULL,
 			value_name VARCHAR(255),
 			value_type VARCHAR(50),
     		UNIQUE KEY unique_attr (detalle_id, attribute_id, value_id),
@@ -144,5 +149,73 @@ class Wc_Integraciones_Activator {
 		dbDelta($sql3);
 		dbDelta($sql4);
 		dbDelta($sql5);
+	}
+
+	/**
+	 * Runs database upgrades for existing installations.
+	 *
+	 * @since    1.0.8
+	 */
+	public static function maybe_upgrade() {
+		$current_version = get_option('wc_integraciones_db_version', '1.0.0');
+		if (version_compare($current_version, WC_INTEGRACIONES_VERSION, '>=')) {
+			return;
+		}
+
+		global $wpdb;
+		$table_publicaciones = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
+		$table_detalle       = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
+		$table_atributos     = $wpdb->prefix . 'wc_integraciones_meli_variacion_atributos';
+
+		$wpdb->hide_errors();
+
+		// Helper para verificar existencia de columna de forma fiable.
+		$column_exists = function ($table, $column) use ($wpdb) {
+			$result = $wpdb->get_row(
+				$wpdb->prepare("SHOW COLUMNS FROM `{$table}` WHERE Field = %s", $column)
+			);
+			return !empty($result);
+		};
+
+		if (!$column_exists($table_publicaciones, 'family_id')) {
+			$wpdb->query("ALTER TABLE $table_publicaciones ADD COLUMN family_id BIGINT NULL");
+		}
+		if (!$column_exists($table_publicaciones, 'family_name')) {
+			$wpdb->query("ALTER TABLE $table_publicaciones ADD COLUMN family_name VARCHAR(255) NULL");
+		}
+		if (!$column_exists($table_publicaciones, 'model_type')) {
+			$wpdb->query("ALTER TABLE $table_publicaciones ADD COLUMN model_type VARCHAR(20) DEFAULT 'legacy'");
+		}
+		if (!$column_exists($table_publicaciones, 'user_product_id')) {
+			$wpdb->query("ALTER TABLE $table_publicaciones ADD COLUMN user_product_id VARCHAR(100) NULL");
+		}
+
+		// Make sure index exists on family_id.
+		$has_family_index = (bool) $wpdb->get_row(
+			$wpdb->prepare("SHOW INDEX FROM `{$table_publicaciones}` WHERE Key_name = %s", 'idx_family_id')
+		);
+		if (!$has_family_index) {
+			$wpdb->query("ALTER TABLE $table_publicaciones ADD INDEX idx_family_id (family_id)");
+		}
+
+		// Allow nullable variation_id for family items.
+		$nullable_check = $wpdb->get_row(
+			$wpdb->prepare("SHOW COLUMNS FROM `{$table_detalle}` WHERE Field = %s", 'variation_id')
+		);
+		if ($nullable_check && strtoupper($nullable_check->Null) !== 'YES') {
+			$wpdb->query("ALTER TABLE $table_detalle MODIFY COLUMN variation_id VARCHAR(50) NULL");
+		}
+
+		// Allow nullable value_id for family item attributes.
+		$nullable_check = $wpdb->get_row(
+			$wpdb->prepare("SHOW COLUMNS FROM `{$table_atributos}` WHERE Field = %s", 'value_id')
+		);
+		if ($nullable_check && strtoupper($nullable_check->Null) !== 'YES') {
+			$wpdb->query("ALTER TABLE $table_atributos MODIFY COLUMN value_id VARCHAR(100) NULL");
+		}
+
+		$wpdb->show_errors();
+
+		update_option('wc_integraciones_db_version', WC_INTEGRACIONES_VERSION);
 	}
 }
