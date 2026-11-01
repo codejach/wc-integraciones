@@ -16,7 +16,7 @@
  * Plugin Name:       WooCommerce Integraciones
  * Plugin URI:        https://github.com/codejach/wc-integraciones
  * Description:       Administra y sincroniza tus integraciones de WooCommerce con múltiples plataformas.
- * Version:           1.0.9
+ * Version:           1.0.10
  * Author:            Alberto Chávez
  * Author URI:        https://codejach.github.io/curriculo/
  * License:           MIT
@@ -35,7 +35,7 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'WC_INTEGRACIONES_VERSION', '1.0.9' );
+define( 'WC_INTEGRACIONES_VERSION', '1.0.10' );
 
 /**
  * The code that runs during plugin activation.
@@ -71,18 +71,6 @@ register_deactivation_hook( __FILE__, 'deactivate_wc_integraciones' );
  * admin-specific hooks, and public-facing site hooks.
  */
 require plugin_dir_path( __FILE__ ) . 'includes/class-wc-integraciones.php';
-
-/**
- * Register our custom cron schedule (every 6 hours)
- */
-add_filter('cron_schedules', 'wc_integraciones_add_six_hour_schedule');
-function wc_integraciones_add_six_hour_schedule($schedules) {
-    $schedules['every_six_hours'] = [
-        'interval' => 6 * HOUR_IN_SECONDS,
-        'display'  => 'Every Six Hours'
-    ];
-    return $schedules;
-}
 
 
 /**

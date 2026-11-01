@@ -89,7 +89,7 @@ class Wc_Integraciones {
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 
-	    $this->config = WC_Integraciones_Config::load();
+	    $this->config = Wc_Integraciones_Config::load();
 	}
 
 	/**
@@ -142,6 +142,11 @@ class Wc_Integraciones {
 		 * The class responsible for handling MercadoLibre integration.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-meli.php';
+
+		/**
+		 * The class responsible for persisting the MercadoLibre API log.
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-wc-integraciones-api-logger.php';
 
 		/**
 		 * The class responsible for database activation/upgrade.

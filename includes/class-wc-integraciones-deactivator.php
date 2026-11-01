@@ -30,11 +30,13 @@ class Wc_Integraciones_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
-        $timestamp = wp_next_scheduled('meli_refresh_token_cron');
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, 'meli_refresh_token_cron');
-        }
+		// Limpieza legacy: el evento meli_refresh_token_cron fue eliminado por no tener callback.
+		wp_clear_scheduled_hook('meli_refresh_token_cron');
 
+		// Detener la purga del log de API si Action Scheduler está disponible.
+		if (function_exists('as_unschedule_all_actions')) {
+			as_unschedule_all_actions('wc_integraciones_purgar_api_log');
+		}
 	}
 
 }

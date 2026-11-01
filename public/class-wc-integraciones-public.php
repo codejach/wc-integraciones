@@ -88,11 +88,14 @@ class Wc_Integraciones_Public {
             1
         );
 
+        // Purga diaria del log de API (Action Scheduler)
+        add_action('wc_integraciones_purgar_api_log', [$this, 'purgar_api_log'], 10, 0);
+
         // Hooks de WooCommerce para detectar cambios de stock
         add_action('woocommerce_updated_product_stock', [$this, 'handle_wc_stock_change'], 10, 1);
         add_action('woocommerce_product_object_updated_props', [$this, 'handle_wc_stock_props_change'], 10, 2);
 
-		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
+		$this->ngrok_url = Wc_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
 	/**
@@ -154,8 +157,8 @@ class Wc_Integraciones_Public {
 		$data = $request->get_json_params();
 
 		// Case #3: Validación por IDs de Entorno
-		$expected_user_id = WC_Integraciones_Config::get('meli_user_id');
-		$expected_app_id  = WC_Integraciones_Config::get('meli_application_id');
+		$expected_user_id = Wc_Integraciones_Config::get('meli_user_id');
+		$expected_app_id  = Wc_Integraciones_Config::get('meli_application_id');
 
 		// Validar user_id (obligatorio en Mercado Libre)
 		if (isset($data['user_id']) && !empty($expected_user_id) && (int)$data['user_id'] !== (int)$expected_user_id) {
@@ -169,7 +172,7 @@ class Wc_Integraciones_Public {
 			return new WP_REST_Response(['status' => 'unauthorized'], 401);
 		}
 
-		if (WC_Integraciones_Config::is_prod()) {
+		if (Wc_Integraciones_Config::is_prod()) {
 			$webhook_url = "https://www.ninavestuariosinfantiles.com/wp-json/meli/v1/notifications/async";
 		} else {
 			$webhook_url = "http://wp_integraciones/wp-json/meli/v1/notifications/async";
@@ -366,7 +369,7 @@ class Wc_Integraciones_Public {
 		}
 
 		// Obtener token de MercadoLibre
-		$meli = new WC_Integraciones_Meli();
+		$meli = new Wc_Integraciones_Meli();
 		$access_token = $meli->obtener_token();
 
 		// Configurar encabezados
@@ -377,7 +380,7 @@ class Wc_Integraciones_Public {
 
 		// Llamada al endpoint de ML
 		$url = "https://api.mercadolibre.com" . $resource;
-		$response = wp_remote_get($url, ['headers' => $headers]);
+		$response = $meli->request('GET', $url, ['headers' => $headers], 'order');
 
 		if (is_wp_error($response)) {
 			$message = '❌ Error al obtener orden desde ML: ' . $response->get_error_message();
@@ -620,14 +623,25 @@ class Wc_Integraciones_Public {
             return;
         }
 
-        $meli = new WC_Integraciones_Meli();
+        $meli = new Wc_Integraciones_Meli();
         $resultado = $meli->actualizar_stock($meli_item_id, $variation_id, $new_stock);
 
-        if ($resultado) {
+        if (is_array($resultado) && !empty($resultado['dry_run'])) {
+            error_log("🧪 Dry-run: sincronización WC -> ML simulada para SKU: $sku");
+        } elseif ($resultado) {
             error_log("✅ Sincronización exitosa WC -> ML para SKU: $sku");
         } else {
             error_log("❌ Falló la sincronización WC -> ML para SKU: $sku");
         }
+    }
+
+    /**
+     * Purga el log de llamadas a la API (Action Scheduler).
+     *
+     * @since 1.0.10
+     */
+    public function purgar_api_log() {
+        Wc_Integraciones_Api_Logger::purge();
     }
 
     /**

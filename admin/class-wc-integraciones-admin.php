@@ -68,8 +68,10 @@ class Wc_Integraciones_Admin {
 		add_action('admin_post' . self::get_meli_auth_suffix() . '_meli_auth_callback', [$this, 'handle_meli_oauth_callback']);
 
 		add_action('rest_api_init', [$this, 'register_sync_toggle_route']);
+		add_action('rest_api_init', [$this, 'register_reveal_token_route']);
+		add_action('admin_post_wc_integraciones_clear_api_log', [$this, 'handle_clear_api_log']);
 
-		$this->ngrok_url = WC_Integraciones_Config::get('api_ngrok_url', '');
+		$this->ngrok_url = Wc_Integraciones_Config::get('api_ngrok_url', '');
 	}
 
 	/**
@@ -179,6 +181,9 @@ class Wc_Integraciones_Admin {
 				break;
 			case 'log':
 				$this->display_log();
+				break;
+			case 'api':
+				$this->display_api();
 				break;
 			case 'configuracion':
             	$this->display_configuracion();
@@ -316,7 +321,7 @@ class Wc_Integraciones_Admin {
 	// Sincronizar publicaciones desde Mercado Libre
 	private function sync_meli_publicaciones() {
 		global $wpdb;
-		$meli = new WC_Integraciones_Meli();
+		$meli = new Wc_Integraciones_Meli();
 
 		$access_token = $meli->obtener_token();
 
@@ -337,11 +342,13 @@ class Wc_Integraciones_Admin {
 		$all_items = [];
 
 		do {
-			$response_items = wp_remote_get(
+			$response_items = $meli->request(
+				'GET',
 				"https://api.mercadolibre.com/users/{$user_id}/items/search?status=active&limit={$limit}&offset={$offset}",
 				[
 					'headers' => ['Authorization' => 'Bearer ' . $access_token]
-				]
+				],
+				'sync'
 			);
 
 			if (is_wp_error($response_items)) {
@@ -379,9 +386,9 @@ class Wc_Integraciones_Admin {
 			$url = "https://api.mercadolibre.com/items?ids={$ids}"
 				. "&attributes=id,family_id";
 
-			$response = wp_remote_get($url, [
+			$response = $meli->request('GET', $url, [
 				'headers' => ['Authorization' => 'Bearer ' . $access_token]
-			]);
+			], 'sync');
 
 			if (is_wp_error($response)) {
 				error_log('Error en multiget de familias: ' . $response->get_error_message());
@@ -405,11 +412,13 @@ class Wc_Integraciones_Admin {
 			$family_offset = 0;
 			$family_limit = 50;
 			do {
-				$response_family = wp_remote_get(
+				$response_family = $meli->request(
+					'GET',
 					"https://api.mercadolibre.com/users/{$user_id}/items/search?search_type=scan&family_id={$family_id}&limit={$family_limit}&offset={$family_offset}",
 					[
 						'headers' => ['Authorization' => 'Bearer ' . $access_token]
-					]
+					],
+					'sync'
 				);
 
 				if (is_wp_error($response_family)) {
@@ -444,9 +453,9 @@ class Wc_Integraciones_Admin {
 			$url = "https://api.mercadolibre.com/items?ids={$ids}"
 				. "&attributes=id,title,seller_id,price,base_price,original_price,initial_quantity,available_quantity,sold_quantity,thumbnail,status,shipping,variations,family_id,family_name,user_product_id,attributes,tags";
 
-			$response = wp_remote_get($url, [
+			$response = $meli->request('GET', $url, [
 				'headers' => ['Authorization' => 'Bearer ' . $access_token]
-			]);
+			], 'sync');
 
 			if (is_wp_error($response)) {
 				error_log('Error en multiget: ' . $response->get_error_message());
@@ -680,6 +689,8 @@ class Wc_Integraciones_Admin {
 		$client_id  = $config ? $config->client_id : '';
 		$secret_key = $config ? $config->secret_key : '';
 		$dev_mode   = $config ? $config->dev_mode : 0;
+		$dev_full_bodies = $config && isset($config->dev_full_bodies) ? (int) $config->dev_full_bodies : 0;
+		$dev_dry_run     = $config && isset($config->dev_dry_run) ? (int) $config->dev_dry_run : 0;
 
 		// Secret enmascarado
 		$masked_secret = $secret_key 
@@ -705,6 +716,8 @@ class Wc_Integraciones_Admin {
 		$client_id = sanitize_text_field($_POST['meli_client_id'] ?? '');
 		$secret_input = sanitize_text_field($_POST['meli_secret_key'] ?? '');
 		$dev_mode = isset($_POST['meli_dev_mode']) ? 1 : 0;
+		$dev_full_bodies = isset($_POST['meli_dev_full_bodies']) ? 1 : 0;
+		$dev_dry_run = isset($_POST['meli_dev_dry_run']) ? 1 : 0;
 
 		// Recuperar registro actual
 		$current = $wpdb->get_row($wpdb->prepare(
@@ -727,9 +740,11 @@ class Wc_Integraciones_Admin {
 					'client_id'  => $client_id,
 					'secret_key' => $secret_key,
 					'dev_mode'   => $dev_mode,
+					'dev_full_bodies' => $dev_full_bodies,
+					'dev_dry_run'     => $dev_dry_run,
 				],
 				['client_name' => 'mercadolibre'],
-				['%s','%s','%d'],
+				['%s','%s','%d','%d','%d'],
 				['%s']
 			);
 		} else {
@@ -740,10 +755,14 @@ class Wc_Integraciones_Admin {
 					'client_id'   => $client_id,
 					'secret_key'  => $secret_key,
 					'dev_mode'    => $dev_mode,
+					'dev_full_bodies' => $dev_full_bodies,
+					'dev_dry_run'     => $dev_dry_run,
 				],
-				['%s','%s','%s','%d']
+				['%s','%s','%s','%d','%d','%d']
 			);
 		}
+
+		Wc_Integraciones_Meli::reset_dev_settings_cache();
 
 		// Mostrar mensaje de error
 		if ($result === false) {
@@ -758,7 +777,7 @@ class Wc_Integraciones_Admin {
 
 	// Callback OAuth Mercado Libre
 	public function handle_meli_oauth_callback() {
-		if (WC_Integraciones_Config::is_prod()) {
+		if (Wc_Integraciones_Config::is_prod()) {
 			$redirect_uri = admin_url('admin-post.php?action=meli_auth_callback');
 			$scheme = 'https';
 		} else {
@@ -782,7 +801,8 @@ class Wc_Integraciones_Admin {
 		}
 
 		// Solicitar el token a Mercado Libre
-		$response = wp_remote_post('https://api.mercadolibre.com/oauth/token', [
+		$meli = new Wc_Integraciones_Meli();
+		$response = $meli->request('POST', 'https://api.mercadolibre.com/oauth/token', [
 			'body' => [
 				'grant_type' => 'authorization_code',
 				'client_id' => $config->client_id,
@@ -790,7 +810,7 @@ class Wc_Integraciones_Admin {
 				'code' => $code,
 				'redirect_uri' => $redirect_uri,
 			],
-		]);
+		], 'oauth');
 
 		if (is_wp_error($response)) {
 			wp_die('Error al obtener el token: ' . $response->get_error_message());
@@ -839,7 +859,7 @@ class Wc_Integraciones_Admin {
 			return '';
 		}
 
-		if (WC_Integraciones_Config::is_prod()) {
+		if (Wc_Integraciones_Config::is_prod()) {
 			$redirect_uri = urlencode(admin_url('admin-post.php?action=meli_auth_callback'));
 		} else {
 			$redirect_uri = $this->ngrok_url . '/wp-admin/admin-post.php?action=meli_auth_callback';
@@ -851,7 +871,7 @@ class Wc_Integraciones_Admin {
 	}
 
 	public static function get_meli_auth_suffix() {
-		return WC_Integraciones_Config::is_prod() ? '' : '_nopriv';
+		return Wc_Integraciones_Config::is_prod() ? '' : '_nopriv';
 	}
 
 	/**
@@ -898,5 +918,117 @@ class Wc_Integraciones_Admin {
 		$logs = $wpdb->get_results("SELECT * FROM $table ORDER BY created_at DESC LIMIT 100");
 
 		include_once plugin_dir_path(__FILE__) . 'partials/mercadolibre/log/view.php';
+	}
+
+	/**
+	 * Muestra la pestaña de llamadas a la API (modo desarrollo).
+	 *
+	 * @since 1.0.10
+	 */
+	private function display_api() {
+		$context = isset($_GET['context']) && is_string($_GET['context'])
+			? sanitize_key(wp_unslash($_GET['context']))
+			: '';
+		if (!in_array($context, Wc_Integraciones_Api_Logger::contexts(), true)) {
+			$context = '';
+		}
+
+		$status = isset($_GET['status']) && is_string($_GET['status'])
+			? sanitize_key(wp_unslash($_GET['status']))
+			: 'all';
+		if (!in_array($status, ['all', 'ok', 'error'], true)) {
+			$status = 'all';
+		}
+
+		$paged    = isset($_GET['paged']) && is_scalar($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+		$per_page = 50;
+		$filters  = ['context' => $context, 'status' => $status];
+
+		$total = Wc_Integraciones_Api_Logger::count_logs($filters);
+		$logs  = Wc_Integraciones_Api_Logger::get_logs($filters, $per_page, ($paged - 1) * $per_page);
+
+		$token      = (string) get_option('meli_access_token', '');
+		$expires_at = (int) get_option('meli_token_expires', 0);
+		$masked_token = $this->mask_token($token);
+
+		include_once plugin_dir_path(__FILE__) . 'partials/mercadolibre/api/view.php';
+	}
+
+	/**
+	 * Enmascara un token conservando el prefijo y los últimos 4 caracteres.
+	 *
+	 * @since 1.0.10
+	 *
+	 * @param string $token Token.
+	 * @return string
+	 */
+	private function mask_token($token) {
+		$token = (string) $token;
+
+		if ('' === $token) {
+			return '';
+		}
+
+		if (strlen($token) <= 12) {
+			return str_repeat('*', 8);
+		}
+
+		return substr($token, 0, 8) . str_repeat('*', 12) . substr($token, -4);
+	}
+
+	/**
+	 * Registra la ruta que revela el token a un administrador.
+	 *
+	 * @since 1.0.10
+	 */
+	public function register_reveal_token_route() {
+		register_rest_route('meli/v1', '/reveal-token', [
+			'methods' => 'POST',
+			'callback' => [$this, 'handle_reveal_token'],
+			'permission_callback' => function() {
+				return current_user_can('manage_options');
+			},
+		]);
+	}
+
+	/**
+	 * Devuelve el access token actual.
+	 *
+	 * @since 1.0.10
+	 *
+	 * @return WP_REST_Response
+	 */
+	public function handle_reveal_token() {
+		$token = get_option('meli_access_token');
+
+		if (!$token) {
+			return new WP_REST_Response(['success' => false, 'message' => 'No hay token disponible.'], 404);
+		}
+
+		return new WP_REST_Response(['success' => true, 'token' => $token], 200);
+	}
+
+	/**
+	 * Vacía el log de llamadas a la API.
+	 *
+	 * @since 1.0.10
+	 */
+	public function handle_clear_api_log() {
+		$nonce = isset($_POST['api_log_nonce']) && is_string($_POST['api_log_nonce'])
+			? wp_unslash($_POST['api_log_nonce'])
+			: '';
+
+		if (!$nonce || !wp_verify_nonce($nonce, 'clear_api_log')) {
+			wp_die('Acceso no autorizado.');
+		}
+
+		if (!current_user_can('manage_options')) {
+			wp_die('No tienes suficientes permisos para realizar esta acción.');
+		}
+
+		Wc_Integraciones_Api_Logger::clear_all();
+
+		wp_redirect(admin_url('admin.php?page=integraciones-woocommerce-mercadolibre&tab=api&api_log_cleared=true'));
+		exit;
 	}
 }

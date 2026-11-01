@@ -1,6 +1,6 @@
 <?php
 
-class WC_Integraciones_Config {
+class Wc_Integraciones_Config {
 
     private static $config = null;
 

@@ -33,11 +33,6 @@ class Wc_Integraciones_Activator {
 		global $wpdb;
 		$charset_collate = $wpdb->get_charset_collate();
 
-		// Programar evento cron para refrescar token cada 6 horas
-		if (!wp_next_scheduled('meli_refresh_token_cron')) {
-			wp_schedule_event(time(), 'every_six_hours', 'meli_refresh_token_cron');
-		}
-
 		$table_name = $wpdb->prefix . 'wc_integraciones_settings';
 		$sql = "CREATE TABLE $table_name (
 			id mediumint(9) NOT NULL AUTO_INCREMENT,
@@ -46,6 +41,8 @@ class Wc_Integraciones_Activator {
 			secret_key varchar(255) NOT NULL,
 			user_id BIGINT UNSIGNED NULL,
 			dev_mode tinyint(1) DEFAULT 0 NOT NULL,
+			dev_full_bodies tinyint(1) DEFAULT 0 NOT NULL,
+			dev_dry_run tinyint(1) DEFAULT 0 NOT NULL,
 			PRIMARY KEY  (id)
 		) $charset_collate;";
 
@@ -141,6 +138,9 @@ class Wc_Integraciones_Activator {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		) $charset_collate;";
 
+		// Tabla Log de llamadas a la API (modo desarrollo)
+		$sql6 = self::get_api_log_table_sql();
+
 
 		require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 		dbDelta($sql);
@@ -149,6 +149,64 @@ class Wc_Integraciones_Activator {
 		dbDelta($sql3);
 		dbDelta($sql4);
 		dbDelta($sql5);
+		dbDelta($sql6);
+
+		self::schedule_log_purge();
+	}
+
+	/**
+	 * DDL de la tabla de log de llamadas a la API.
+	 *
+	 * @since  1.0.10
+	 * @return string
+	 */
+	private static function get_api_log_table_sql() {
+		global $wpdb;
+
+		$table           = $wpdb->prefix . 'wc_integraciones_meli_api_log';
+		$charset_collate = $wpdb->get_charset_collate();
+
+		return "CREATE TABLE $table (
+			id BIGINT NOT NULL AUTO_INCREMENT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			context VARCHAR(40) DEFAULT NULL,
+			method VARCHAR(10) DEFAULT NULL,
+			endpoint TEXT,
+			status_code SMALLINT DEFAULT NULL,
+			duration_ms INT DEFAULT NULL,
+			request_json LONGTEXT,
+			response_json LONGTEXT,
+			response_truncated TINYINT(1) DEFAULT 0,
+			error_message TEXT,
+			user_id BIGINT DEFAULT NULL,
+			PRIMARY KEY  (id),
+			KEY idx_created_at (created_at),
+			KEY idx_context (context),
+			KEY idx_status (status_code)
+		) $charset_collate;";
+	}
+
+	/**
+	 * Programa la purga diaria del log de API vía Action Scheduler.
+	 *
+	 * @since 1.0.10
+	 */
+	private static function schedule_log_purge() {
+		if ( ! function_exists( 'as_next_scheduled_action' ) || ! function_exists( 'as_schedule_recurring_action' ) ) {
+			return;
+		}
+
+		if ( as_next_scheduled_action( 'wc_integraciones_purgar_api_log' ) ) {
+			return;
+		}
+
+		as_schedule_recurring_action(
+			time() + HOUR_IN_SECONDS,
+			DAY_IN_SECONDS,
+			'wc_integraciones_purgar_api_log',
+			array(),
+			'meli_sync'
+		);
 	}
 
 	/**
@@ -157,12 +215,19 @@ class Wc_Integraciones_Activator {
 	 * @since    1.0.8
 	 */
 	public static function maybe_upgrade() {
+		// Limpieza legacy: elimina en instalaciones existentes el evento cron
+		// meli_refresh_token_cron, retirado por no tener callback asociado.
+		if (wp_next_scheduled('meli_refresh_token_cron')) {
+			wp_clear_scheduled_hook('meli_refresh_token_cron');
+		}
+
 		$current_version = get_option('wc_integraciones_db_version', '1.0.0');
 		if (version_compare($current_version, WC_INTEGRACIONES_VERSION, '>=')) {
 			return;
 		}
 
 		global $wpdb;
+		$table_settings      = $wpdb->prefix . 'wc_integraciones_settings';
 		$table_publicaciones = $wpdb->prefix . 'wc_integraciones_meli_publicaciones';
 		$table_detalle       = $wpdb->prefix . 'wc_integraciones_meli_publicaciones_detalle';
 		$table_atributos     = $wpdb->prefix . 'wc_integraciones_meli_variacion_atributos';
@@ -190,6 +255,14 @@ class Wc_Integraciones_Activator {
 			$wpdb->query("ALTER TABLE $table_publicaciones ADD COLUMN user_product_id VARCHAR(100) NULL");
 		}
 
+		// Flags de desarrollo (1.0.10).
+		if (!$column_exists($table_settings, 'dev_full_bodies')) {
+			$wpdb->query("ALTER TABLE $table_settings ADD COLUMN dev_full_bodies tinyint(1) DEFAULT 0 NOT NULL");
+		}
+		if (!$column_exists($table_settings, 'dev_dry_run')) {
+			$wpdb->query("ALTER TABLE $table_settings ADD COLUMN dev_dry_run tinyint(1) DEFAULT 0 NOT NULL");
+		}
+
 		// Make sure index exists on family_id.
 		$has_family_index = (bool) $wpdb->get_row(
 			$wpdb->prepare("SHOW INDEX FROM `{$table_publicaciones}` WHERE Key_name = %s", 'idx_family_id')
@@ -214,7 +287,12 @@ class Wc_Integraciones_Activator {
 			$wpdb->query("ALTER TABLE $table_atributos MODIFY COLUMN value_id VARCHAR(100) NULL");
 		}
 
+		require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+		dbDelta(self::get_api_log_table_sql());
+
 		$wpdb->show_errors();
+
+		self::schedule_log_purge();
 
 		update_option('wc_integraciones_db_version', WC_INTEGRACIONES_VERSION);
 	}

@@ -137,6 +137,56 @@
 			});
 		});
 
+		// Revelar el token de Mercado Libre (pestaña API)
+		const $revealBtn = $('#meli-reveal-token');
+		const $tokenValue = $('#meli-token-value');
+
+		if ($revealBtn.length && $tokenValue.length) {
+			let hideTimer = null;
+			let isRevealed = false;
+
+			const hideToken = function () {
+				$tokenValue.text($tokenValue.data('masked'));
+				$revealBtn.text('Revelar');
+				isRevealed = false;
+				hideTimer = null;
+			};
+
+			$revealBtn.on('click', function () {
+				if (isRevealed) {
+					clearTimeout(hideTimer);
+					hideToken();
+					return;
+				}
+
+				$revealBtn.prop('disabled', true).text('Cargando...');
+
+				fetch('/wp-json/meli/v1/reveal-token', {
+					method: 'POST',
+					headers: {
+						'X-WP-Nonce': wc_integraciones_admin.rest_nonce
+					}
+				})
+					.then(r => r.json())
+					.then(data => {
+						if (data && data.success && data.token) {
+							$tokenValue.text(data.token);
+							$revealBtn.text('Ocultar');
+							isRevealed = true;
+							hideTimer = setTimeout(hideToken, 30000);
+						} else {
+							$revealBtn.text('❌ No disponible');
+						}
+					})
+					.catch(() => {
+						$revealBtn.text('❌ Error de red');
+					})
+					.finally(() => {
+						$revealBtn.prop('disabled', false);
+					});
+			});
+		}
+
 	});
 
 })(jQuery);

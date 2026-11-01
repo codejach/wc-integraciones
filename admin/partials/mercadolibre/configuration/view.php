@@ -39,6 +39,21 @@
                 <th scope="row">Modo Desarrollo</th>
                 <td>
                     <label><input type="checkbox" name="meli_dev_mode" value="1" <?php checked($dev_mode, 1); ?> /> Activar</label>
+                    <p class="description">Registra las llamadas a la API de MercadoLibre en la pestaña <strong>API</strong>.</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">Guardar cuerpos completos</th>
+                <td>
+                    <label><input type="checkbox" name="meli_dev_full_bodies" value="1" <?php checked($dev_full_bodies, 1); ?> /> Activar</label>
+                    <p class="description">Guarda también las respuestas correctas (2xx). Sin esto solo se guardan los cuerpos de error.</p>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">Dry-run de escrituras</th>
+                <td>
+                    <label><input type="checkbox" name="meli_dev_dry_run" value="1" <?php checked($dev_dry_run, 1); ?> /> Activar</label>
+                    <p class="description">Simula las actualizaciones de stock hacia MercadoLibre sin enviarlas.</p>
                 </td>
             </tr>
         </table>
